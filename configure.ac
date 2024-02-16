@@ -252,6 +252,24 @@ AC_ARG_ENABLE(nfsdcltrack,
 	enable_nfsdcltrack=$enableval,
 	enable_nfsdcltrack="yes")
 
+AC_ARG_ENABLE(nfsdctl,
+	[AS_HELP_STRING([--disable-nfsdctl],[disable nfsdctl program for controlling nfsd@<:@default=no@:>@])],
+	enable_nfsdctl=$enableval,
+	enable_nfsdctl="yes")
+	AM_CONDITIONAL(CONFIG_NFSDCTL, [test "$enable_nfsdctl" = "yes" ])
+	if test "$enable_nfsdctl" = yes; then
+		PKG_CHECK_MODULES(LIBNL3, libnl-3.0 >= 3.1)
+		PKG_CHECK_MODULES(LIBNLGENL3, libnl-genl-3.0 >= 3.1)
+		PKG_CHECK_MODULES(LIBREADLINE, readline)
+		AC_CHECK_HEADERS(linux/nfsd_netlink.h)
+
+		# ensure we have the pool-mode commands
+		AC_COMPILE_IFELSE([AC_LANG_PROGRAM([[#include <linux/nfsd_netlink.h>]],
+				                   [[int foo = NFSD_CMD_POOL_MODE_GET;]])],
+				   [AC_DEFINE([USE_SYSTEM_NFSD_NETLINK_H], 1,
+					      ["Use system's linux/nfsd_netlink.h"])])
+	fi
+
 AC_ARG_ENABLE(nfsv4server,
 	[AS_HELP_STRING([--enable-nfsv4server],[enable support for NFSv4 only server  @<:@default=no@:>@])],
 	enable_nfsv4server=$enableval,
@@ -739,6 +757,7 @@ AC_CONFIG_FILES([
 	utils/mountd/Makefile
 	utils/exportd/Makefile
 	utils/nfsd/Makefile
+	utils/nfsdctl/Makefile
 	utils/nfsref/Makefile
 	utils/nfsstat/Makefile
 	utils/nfsidmap/Makefile
