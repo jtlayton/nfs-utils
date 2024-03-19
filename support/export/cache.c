@@ -1832,6 +1832,8 @@ cache_get_filehandle(nfs_export *exp, int len, char *p)
 {
 	static struct nfs_fh_len fh;
 	char buf[RPC_CHAN_BUF_SIZE], *bp;
+	struct file_handle *handle;
+	int status, mount_id;
 	int blen, f;
 
 	f = open("/proc/fs/nfsd/filehandle", O_RDWR);
@@ -1859,6 +1861,12 @@ cache_get_filehandle(nfs_export *exp, int len, char *p)
 
 	memset(fh.fh_handle, 0, sizeof(fh.fh_handle));
 	fh.fh_size = qword_get(&bp, (char *)fh.fh_handle, NFS3_FHSIZE);
+
+	handle = alloca(sizeof(handle) + len);
+	handle->handle_bytes = len;
+
+	status = name_to_handle_at(AT_FDCWD, p, handle, &mount_id, 0);
+
 	return &fh;
 }
 
