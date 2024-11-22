@@ -248,9 +248,9 @@ AC_ARG_ENABLE(nfsrahead,
 	fi
 
 AC_ARG_ENABLE(nfsdcltrack,
-	[AS_HELP_STRING([--disable-nfsdcltrack],[disable NFSv4 clientid tracking programs @<:@default=no@:>@])],
+	[AS_HELP_STRING([--enable-nfsdcltrack],[enable NFSv4 clientid tracking programs @<:@default=no@:>@])],
 	enable_nfsdcltrack=$enableval,
-	enable_nfsdcltrack="yes")
+	enable_nfsdcltrack="no")
 
 AC_ARG_ENABLE(nfsdctl,
 	[AS_HELP_STRING([--disable-nfsdctl],[disable nfsdctl program for controlling nfsd@<:@default=no@:>@])],
