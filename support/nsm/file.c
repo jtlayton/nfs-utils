@@ -187,7 +187,7 @@ nsm_make_temp_pathname(const char *pathname)
 	char *path, *base;
 	int len;
 
-	size = strlen(pathname) + sizeof(".new") + 3;
+	size = strlen(pathname) + sizeof(".new") + 1;
 	if (size > PATH_MAX)
 		return NULL;
 
@@ -199,7 +199,7 @@ nsm_make_temp_pathname(const char *pathname)
 	strcpy(path, pathname);
 
 	len = base - pathname;
-	len += snprintf(path + len + 1, size-len, ".%s.new", base+1);
+	len += snprintf(path + len + 1, size - len - 1, ".%s.new", base+1);
 	if (error_check(len, size)) {
 		free(path);
 		return NULL;
