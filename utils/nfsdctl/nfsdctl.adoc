@@ -67,6 +67,11 @@ Each subcommand can also accept its own set of options and arguments. The
   addresses must be in dotted-quad form. IPv6 addresses should be in standard
   colon separated form, and must be enclosed in square brackets.
 
+*nlm*::
+
+  Get information about NLM (lockd) settings in the current net namespace. This
+  subcommand takes no arguments.
+
 *status*::
 
   Get information about RPCs currently executing in the server. This subcommand
