@@ -754,6 +754,19 @@ static int update_nfsd_version(int major, int minor, bool enabled)
 	return -EINVAL;
 }
 
+static int get_max_minorversion(void)
+{
+	int i, max = 0;
+
+	for (i = 0; i < MAX_NFS_VERSIONS; ++i) {
+		if (nfsd_versions[i].major == 0)
+			break;
+		if (nfsd_versions[i].major == 4 && nfsd_versions[i].minor > max)
+			max = nfsd_versions[i].minor;
+	}
+	return max;
+}
+
 static void version_usage(void)
 {
 	printf("Usage: %s version { {+,-}major.minor } ...\n", taskname);
@@ -771,7 +784,7 @@ static void version_usage(void)
 
 static int version_func(struct nl_sock *sock, int argc, char ** argv)
 {
-	int ret, i;
+	int ret, i, j, max_minor;
 
 	/* help is only valid as first argument after command */
 	if (argc > 1 &&
@@ -785,6 +798,8 @@ static int version_func(struct nl_sock *sock, int argc, char ** argv)
 		return ret;
 
 	if (argc > 1) {
+		max_minor = get_max_minorversion();
+
 		for (i = 1; i < argc; ++i) {
 			int ret, major, minor = 0;
 			char sign = '\0', *str = argv[i];
@@ -808,9 +823,22 @@ static int version_func(struct nl_sock *sock, int argc, char ** argv)
 				return -EINVAL;
 			}
 
-			ret = update_nfsd_version(major, minor, enabled);
-			if (ret)
-				return ret;
+			/*
+			 * The minorversion field is optional. If omitted, it should
+			 * cause all the minor versions for that major version to be
+			 * enabled/disabled.
+			 */
+			if (major == 4 && ret == 2) {
+				for (j = 0; j <= max_minor; ++j) {
+					ret = update_nfsd_version(major, j, enabled);
+					if (ret)
+						return ret;
+				}
+			} else {
+				ret = update_nfsd_version(major, minor, enabled);
+				if (ret)
+					return ret;
+			}
 		}
 		return set_nfsd_versions(sock);
 	}
