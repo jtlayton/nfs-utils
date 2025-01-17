@@ -1303,15 +1303,47 @@ read_nfsd_conf(void)
 	xlog_set_debug("nfsd");
 }
 
-static void configure_versions(void)
+static int configure_versions(void)
 {
-	bool v4 = conf_get_bool("nfsd", "vers4", true);
+	int i, j, max_minor = get_max_minorversion();
+	bool found_one = false;
+	char tag[20];
 
-	update_nfsd_version(2, 0, conf_get_bool("nfsd", "vers2", false));
-	update_nfsd_version(3, 0, conf_get_bool("nfsd", "vers3", true));
-	update_nfsd_version(4, 0, v4 && conf_get_bool("nfsd", "vers4.0", true));
-	update_nfsd_version(4, 1, v4 && conf_get_bool("nfsd", "vers4.1", true));
-	update_nfsd_version(4, 2, v4 && conf_get_bool("nfsd", "vers4.2", true));
+	for (i = 2; i <= 4; ++i) {
+		sprintf(tag, "vers%d", i);
+		if (!conf_get_bool("nfsd", tag, true)) {
+			update_nfsd_version(i, 0, false);
+			if (i == 4)
+				for (j = 0; j <= max_minor; ++j)
+					update_nfsd_version(4, j, false);
+		}
+		if (conf_get_bool("nfsd", tag, false)) {
+			update_nfsd_version(i, 0, true);
+			if (i == 4)
+				for (j = 0; j <= max_minor; ++j)
+					update_nfsd_version(4, j, true);
+		}
+	}
+
+	for (i = 0; i <= max_minor; ++i) {
+		sprintf(tag, "vers4.%d", i);
+		if (!conf_get_bool("nfsd", tag, true))
+			update_nfsd_version(4, i, false);
+		if (conf_get_bool("nfsd", tag, false))
+			update_nfsd_version(4, i, true);
+	}
+
+	for (i = 0; i < MAX_NFS_VERSIONS; ++i) {
+		if (nfsd_versions[i].enabled) {
+			found_one = true;
+			break;
+		}
+	}
+	if (!found_one) {
+		xlog(L_ERROR, "no version specified");
+		return 1;
+	}
+	return 0;
 }
 
 static void configure_listeners(void)
@@ -1395,7 +1427,9 @@ static int autostart_func(struct nl_sock *sock, int argc, char ** argv)
 	ret = fetch_nfsd_versions(sock);
 	if (ret)
 		return ret;
-	configure_versions();
+	ret = configure_versions();
+	if (ret)
+		return ret;
 	ret = set_nfsd_versions(sock);
 	if (ret)
 		return ret;
