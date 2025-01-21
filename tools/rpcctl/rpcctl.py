@@ -44,7 +44,10 @@ def read_info_file(path):
 
 
 class Xprt:
+    """Represents a single sunrpc connection."""
+
     def __init__(self, path):
+        """Read in xprt information from sysfs."""
         self.path = path
         self.name = path.stem.rsplit("-", 1)[0]
         self.type = path.stem.split("-")[2]
@@ -54,6 +57,7 @@ class Xprt:
         self.read_state()
 
     def __lt__(self, rhs):
+        """Compare the names of two xprt instances."""
         return self.name < rhs.name
 
     def _xprt(self):
@@ -79,24 +83,29 @@ class Xprt:
                f"tasks {self.info['tasks_queuelen']}"
 
     def __str__(self):
+        """Return a string representation of an xprt."""
         if not self.path.exists():
             return f"{self.name}: has been removed"
         return "\n".join([self._xprt(), self._src_reqs(),
                           self._cong_slots(), self._queues()])
 
     def read_state(self):
+        """Read in the xprt_state file."""
         if self.path.exists():
             with open(self.path / "xprt_state") as f:
                 self.state = ','.join(f.readline().split()[1:])
 
     def small_str(self):
+        """Return a short string summary of an xprt."""
         main = " [main]" if self.info.get("main_xprt") else ""
         return f"{self.name}: {self.type}, {self.dstaddr}{main}"
 
     def set_dstaddr(self, newaddr):
+        """Change the dstaddr of an xprt."""
         self.dstaddr = write_addr_file(self.path / "dstaddr", newaddr)
 
     def set_state(self, state):
+        """Change the state of an xprt."""
         if self.info.get("main_xprt"):
             raise Exception(f"Main xprts cannot be set {state}")
         with open(self.path / "xprt_state", 'w') as f:
@@ -104,12 +113,14 @@ class Xprt:
         self.read_state()
 
     def remove(self):
+        """Remove an xprt."""
         if self.info.get("main_xprt"):
             raise Exception("Main xprts cannot be removed")
         self.set_state("offline")
         self.set_state("remove")
 
     def add_command(subparser):
+        """Add parser options for the `rpcctl xprt` command."""
         parser = subparser.add_parser("xprt",
                                       help="Commands for individual xprts")
         parser.set_defaults(func=Xprt.show, xprt=None)
@@ -140,6 +151,7 @@ class Xprt:
         dstaddr.set_defaults(func=Xprt.set_property, property="dstaddr")
 
     def get_by_name(name):
+        """Find a (sorted) list of Xprts matching the given name."""
         glob = f"**/{name}-*" if name else "**/xprt-*"
         res = [Xprt(x) for x in (sunrpc / "xprt-switches").glob(glob)]
         if name and len(res) == 0:
@@ -148,10 +160,12 @@ class Xprt:
         return sorted(res)
 
     def show(args):
+        """Handle the `rpcctl xprt show` command."""
         for xprt in Xprt.get_by_name(args.xprt):
             print(xprt)
 
     def set_property(args):
+        """Handle the `rpcctl xprt set` command."""
         for xprt in Xprt.get_by_name(args.xprt[0]):
             if args.property == "dstaddr":
                 xprt.set_dstaddr(socket.gethostbyname(args.newaddr[0]))
