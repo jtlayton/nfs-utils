@@ -37,7 +37,7 @@ def read_info_file(path):
     res = collections.defaultdict(int)
     try:
         with open(path) as info:
-            lines = [l.split("=", 1) for l in info if "=" in l]
+            lines = [line.split("=", 1) for line in info if "=" in line]
             res.update({key: int(val.strip()) for (key, val) in lines})
     finally:
         return res
