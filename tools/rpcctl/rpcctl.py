@@ -1,4 +1,5 @@
 #!/usr/bin/python3
+"""Utility for working with the sunrpc sysfs files."""
 import argparse
 import collections
 import errno
@@ -20,6 +21,7 @@ if not sunrpc.is_dir():
 
 
 def read_addr_file(path):
+    """Read an xprt address file."""
     try:
         with open(path, 'r') as f:
             return f.readline().strip()
@@ -28,12 +30,14 @@ def read_addr_file(path):
 
 
 def write_addr_file(path, newaddr):
+    """Write a new address to an xprt address file."""
     with open(path, 'w') as f:
         f.write(newaddr)
     return read_addr_file(path)
 
 
 def read_info_file(path):
+    """Read an xprt or xprt switch information file."""
     res = collections.defaultdict(int)
     try:
         with open(path) as info:
@@ -246,18 +250,24 @@ class XprtSwitch:
 
 
 class RpcClient:
+    """Represents an rpc client instance."""
+
     def __init__(self, path):
+        """Read in rpc client information from sysfs."""
         self.path = path
         self.name = path.stem
         self.switch = XprtSwitch(path / (path / "switch").readlink(), sep=",")
 
     def __lt__(self, rhs):
+        """Compare the name of two rpc client instances."""
         return self.name < rhs.name
 
     def __str__(self):
+        """Return a string representation of an rpc client."""
         return f"{self.name}: {self.switch}"
 
     def add_command(subparser):
+        """Add parser options for the `rpcctl client` command."""
         parser = subparser.add_parser("client",
                                       help="Commands for rpc clients")
         parser.set_defaults(func=RpcClient.show, client=None)
@@ -269,12 +279,14 @@ class RpcClient:
         parser.set_defaults(func=RpcClient.show)
 
     def get_by_name(name):
+        """Find a (sorted) list of RpcClients matching the given name."""
         rpc_clients = sunrpc / "rpc-clients"
         if name:
             return [RpcClient(rpc_clients / name)]
         return [RpcClient(f) for f in sorted(rpc_clients.iterdir())]
 
     def show(args):
+        """Handle the `rpcctl client show` command."""
         for client in RpcClient.get_by_name(args.client):
             print(client)
 
@@ -283,6 +295,7 @@ parser = argparse.ArgumentParser()
 
 
 def show_small_help(args):
+    """Show a one-line usage summary if no subcommand is given."""
     parser.print_usage()
     print("sunrpc dir:", sunrpc)
 
