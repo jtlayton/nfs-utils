@@ -177,7 +177,10 @@ class Xprt:
 
 
 class XprtSwitch:
+    """Represents a group of xprt connections."""
+
     def __init__(self, path, sep=":"):
+        """Read in xprt switch information from sysfs."""
         self.path = path
         self.name = path.stem
         self.info = read_info_file(path / "xprt_switch_info")
@@ -186,9 +189,11 @@ class XprtSwitch:
         self.sep = sep
 
     def __lt__(self, rhs):
+        """Compare the name of two xprt switch instances."""
         return self.name < rhs.name
 
     def __str__(self):
+        """Return a string representation of an xprt switch."""
         switch = f"{self.name}{self.sep} " \
                  f"xprts {self.info['num_xprts']}, " \
                  f"active {self.info['num_active']}, " \
@@ -197,6 +202,7 @@ class XprtSwitch:
         return "\n".join([switch] + xprts)
 
     def add_command(subparser):
+        """Add parser options for the `rpcctl switch` command."""
         parser = subparser.add_parser("switch",
                                       help="Commands for xprt switches")
         parser.set_defaults(func=XprtSwitch.show, switch=None)
@@ -219,16 +225,19 @@ class XprtSwitch:
         dstaddr.set_defaults(func=XprtSwitch.set_property, property="dstaddr")
 
     def get_by_name(name):
+        """Find a (sorted) list of XprtSwitches matching the given name."""
         xprt_switches = sunrpc / "xprt-switches"
         if name:
             return [XprtSwitch(xprt_switches / name)]
         return [XprtSwitch(f) for f in sorted(xprt_switches.iterdir())]
 
     def show(args):
+        """Handle the `rpcctl switch show` command."""
         for switch in XprtSwitch.get_by_name(args.switch):
             print(switch)
 
     def set_property(args):
+        """Handle the `rpcctl switch set` command."""
         for switch in XprtSwitch.get_by_name(args.switch[0]):
             resolved = socket.gethostbyname(args.newaddr[0])
             for xprt in switch.xprts:
