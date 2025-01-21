@@ -8,7 +8,7 @@ import socket
 import sys
 
 with open("/proc/mounts", 'r') as f:
-    mount = [ line.split()[1] for line in f if "sysfs" in line ]
+    mount = [line.split()[1] for line in f if "sysfs" in line]
     if len(mount) == 0:
         print("ERROR: sysfs is not mounted")
         sys.exit(1)
@@ -18,6 +18,7 @@ if not sunrpc.is_dir():
     print("ERROR: sysfs does not have sunrpc directory")
     sys.exit(1)
 
+
 def read_addr_file(path):
     try:
         with open(path, 'r') as f:
@@ -25,17 +26,19 @@ def read_addr_file(path):
     except:
         return "(enoent)"
 
+
 def write_addr_file(path, newaddr):
     with open(path, 'w') as f:
         f.write(newaddr)
     return read_addr_file(path)
 
+
 def read_info_file(path):
     res = collections.defaultdict(int)
     try:
         with open(path) as info:
-            lines = [ l.split("=", 1) for l in info if "=" in l ]
-            res.update({ key:int(val.strip()) for (key, val) in lines })
+            lines = [l.split("=", 1) for l in info if "=" in l]
+            res.update({key: int(val.strip()) for (key, val) in lines})
     finally:
         return res
 
@@ -75,7 +78,7 @@ class Xprt:
         if not self.path.exists():
             return f"{self.name}: has been removed"
         return "\n".join([self._xprt(), self._src_reqs(),
-                          self._cong_slots(), self._queues() ])
+                          self._cong_slots(), self._queues()])
 
     def read_state(self):
         if self.path.exists():
@@ -132,7 +135,7 @@ class Xprt:
 
     def get_by_name(name):
         glob = f"**/{name}-*" if name else "**/xprt-*"
-        res = [ Xprt(x) for x in (sunrpc / "xprt-switches").glob(glob) ]
+        res = [Xprt(x) for x in (sunrpc / "xprt-switches").glob(glob)]
         if name and len(res) == 0:
             raise FileNotFoundError(errno.ENOENT, os.strerror(errno.ENOENT),
                                     f"{sunrpc / 'xprt-switches' / glob}")
@@ -158,19 +161,19 @@ class XprtSwitch:
         self.path = path
         self.name = path.stem
         self.info = read_info_file(path / "xprt_switch_info")
-        self.xprts = sorted([ Xprt(p) for p in self.path.iterdir() if p.is_dir() ])
+        self.xprts = sorted([Xprt(p) for p in self.path.iterdir() if p.is_dir()])
         self.sep = sep
 
     def __lt__(self, rhs):
         return self.name < rhs.name
 
     def __str__(self):
-        switch =  f"{self.name}{self.sep} " \
-                  f"xprts {self.info['num_xprts']}, " \
-                  f"active {self.info['num_active']}, " \
-                  f"queue {self.info['queue_len']}"
-        xprts = [ f"	{x.small_str()}" for x in self.xprts ]
-        return "\n".join([ switch ] + xprts)
+        switch = f"{self.name}{self.sep} " \
+                 f"xprts {self.info['num_xprts']}, " \
+                 f"active {self.info['num_active']}, " \
+                 f"queue {self.info['queue_len']}"
+        xprts = [f"	{x.small_str()}" for x in self.xprts]
+        return "\n".join([switch] + xprts)
 
     def add_command(subparser):
         parser = subparser.add_parser("switch", help="Commands for xprt switches")
@@ -194,8 +197,8 @@ class XprtSwitch:
     def get_by_name(name):
         xprt_switches = sunrpc / "xprt-switches"
         if name:
-            return [ XprtSwitch(xprt_switches / name) ]
-        return [ XprtSwitch(f) for f in sorted(xprt_switches.iterdir()) ]
+            return [XprtSwitch(xprt_switches / name)]
+        return [XprtSwitch(f) for f in sorted(xprt_switches.iterdir())]
 
     def show(args):
         for switch in XprtSwitch.get_by_name(args.switch):
@@ -234,8 +237,8 @@ class RpcClient:
     def get_by_name(name):
         rpc_clients = sunrpc / "rpc-clients"
         if name:
-            return [ RpcClient(rpc_clients / name) ]
-        return [ RpcClient(f) for f in sorted(rpc_clients.iterdir()) ]
+            return [RpcClient(rpc_clients / name)]
+        return [RpcClient(f) for f in sorted(rpc_clients.iterdir())]
 
     def show(args):
         for client in RpcClient.get_by_name(args.client):
@@ -244,9 +247,12 @@ class RpcClient:
 
 parser = argparse.ArgumentParser()
 
+
 def show_small_help(args):
     parser.print_usage()
     print("sunrpc dir:", sunrpc)
+
+
 parser.set_defaults(func=show_small_help)
 
 subparser = parser.add_subparsers(title="commands")
