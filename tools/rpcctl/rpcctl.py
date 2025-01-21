@@ -23,7 +23,7 @@ def read_addr_file(path):
     try:
         with open(path, 'r') as f:
             return f.readline().strip()
-    except:
+    except FileNotFoundError:
         return "(enoent)"
 
 
