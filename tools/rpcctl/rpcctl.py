@@ -66,13 +66,17 @@ class Xprt:
                f"Requests: {self.info['num_reqs']}"
 
     def _cong_slots(self):
-        return f"	Congestion: cur {self.info['cur_cong']}, win {self.info['cong_win']}, " \
-               f"Slots: min {self.info['min_num_slots']}, max {self.info['max_num_slots']}"
+        return f"	Congestion: cur {self.info['cur_cong']}, " \
+               f"win {self.info['cong_win']}, " \
+               f"Slots: min {self.info['min_num_slots']}, " \
+               f"max {self.info['max_num_slots']}"
 
     def _queues(self):
         return f"	Queues: binding {self.info['binding_q_len']}, " \
-               f"sending {self.info['sending_q_len']}, pending {self.info['pending_q_len']}, " \
-               f"backlog {self.info['backlog_q_len']}, tasks {self.info['tasks_queuelen']}"
+               f"sending {self.info['sending_q_len']}, " \
+               f"pending {self.info['pending_q_len']}, " \
+               f"backlog {self.info['backlog_q_len']}, " \
+               f"tasks {self.info['tasks_queuelen']}"
 
     def __str__(self):
         if not self.path.exists():
@@ -106,7 +110,8 @@ class Xprt:
         self.set_state("remove")
 
     def add_command(subparser):
-        parser = subparser.add_parser("xprt", help="Commands for individual xprts")
+        parser = subparser.add_parser("xprt",
+                                      help="Commands for individual xprts")
         parser.set_defaults(func=Xprt.show, xprt=None)
         subparser = parser.add_subparsers()
 
@@ -128,7 +133,8 @@ class Xprt:
         online.set_defaults(func=Xprt.set_property, property="online")
         offline = subparser.add_parser("offline", help="Set an xprt offline")
         offline.set_defaults(func=Xprt.set_property, property="offline")
-        dstaddr = subparser.add_parser("dstaddr", help="Change an xprt's dstaddr")
+        dstaddr = subparser.add_parser("dstaddr",
+                                       help="Change an xprt's dstaddr")
         dstaddr.add_argument("newaddr", metavar="NEWADDR", nargs=1,
                              help="The new address for the xprt")
         dstaddr.set_defaults(func=Xprt.set_property, property="dstaddr")
@@ -161,7 +167,8 @@ class XprtSwitch:
         self.path = path
         self.name = path.stem
         self.info = read_info_file(path / "xprt_switch_info")
-        self.xprts = sorted([Xprt(p) for p in self.path.iterdir() if p.is_dir()])
+        self.xprts = sorted([Xprt(p) for p in self.path.iterdir()
+                             if p.is_dir()])
         self.sep = sep
 
     def __lt__(self, rhs):
@@ -176,7 +183,8 @@ class XprtSwitch:
         return "\n".join([switch] + xprts)
 
     def add_command(subparser):
-        parser = subparser.add_parser("switch", help="Commands for xprt switches")
+        parser = subparser.add_parser("switch",
+                                      help="Commands for xprt switches")
         parser.set_defaults(func=XprtSwitch.show, switch=None)
         subparser = parser.add_subparsers()
 
@@ -185,11 +193,13 @@ class XprtSwitch:
                           help="Name of a specific switch to show")
         show.set_defaults(func=XprtSwitch.show)
 
-        set = subparser.add_parser("set", help="Change an xprt switch property")
+        set = subparser.add_parser("set",
+                                   help="Change an xprt switch property")
         set.add_argument("switch", metavar="SWITCH", nargs=1,
                          help="Name of a specific xprt switch to modify")
         subparser = set.add_subparsers(required=True)
-        dstaddr = subparser.add_parser("dstaddr", help="Change an xprt switch's dstaddr")
+        dstaddr = subparser.add_parser("dstaddr",
+                                       help="Change an xprt switch's dstaddr")
         dstaddr.add_argument("newaddr", metavar="NEWADDR", nargs=1,
                              help="The new address for the xprt switch")
         dstaddr.set_defaults(func=XprtSwitch.set_property, property="dstaddr")
@@ -225,7 +235,8 @@ class RpcClient:
         return f"{self.name}: {self.switch}"
 
     def add_command(subparser):
-        parser = subparser.add_parser("client", help="Commands for rpc clients")
+        parser = subparser.add_parser("client",
+                                      help="Commands for rpc clients")
         parser.set_defaults(func=RpcClient.show, client=None)
         subparser = parser.add_subparsers()
 
