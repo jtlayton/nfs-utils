@@ -592,11 +592,7 @@ client are listed.
     parser.add_option_group(displaygroup)
 
     (options, args) = parser.parse_args(sys.argv)
-    for arg in args:
-
-        if arg == sys.argv[0]:
-            continue
-
+    for arg in args[1:]:
         if arg in mountstats:
             origdevices += [arg]
         elif not interval_seen:
