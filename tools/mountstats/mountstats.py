@@ -1007,37 +1007,29 @@ def iostat_command(args):
     else:
         old_mountstats = None
 
-    # make certain devices contains only NFS mount points
-    devices = list_nfs_mounts(origdevices, mountstats)
-
     sample_time = 0
 
+    # make certain devices contains only NFS mount points
+    devices = list_nfs_mounts(origdevices, mountstats)
+    print_iostat_summary(old_mountstats, mountstats, devices, sample_time)
+
     if args.interval is None:
-        print_iostat_summary(old_mountstats, mountstats, devices, sample_time)
         return
 
-    if args.count is not None:
-        count = args.count
-        while count != 0:
-            print_iostat_summary(old_mountstats, mountstats, devices, sample_time)
-            old_mountstats = mountstats
-            time.sleep(args.interval)
-            sample_time = args.interval
-            mountstats = parse_stats_file(args.infile)
-            # nfs mountpoints may appear or disappear, so we need to
-            # recheck the devices list each time we parse mountstats
-            devices = list_nfs_mounts(origdevices, mountstats)
+    count = args.count
+    while True:
+        if count is not None:
             count -= 1
-    else: 
-        while True:
-            print_iostat_summary(old_mountstats, mountstats, devices, sample_time)
-            old_mountstats = mountstats
-            time.sleep(args.interval)
-            sample_time = args.interval
-            mountstats = parse_stats_file(args.infile)
-            # nfs mountpoints may appear or disappear, so we need to
-            # recheck the devices list each time we parse mountstats
-            devices = list_nfs_mounts(origdevices, mountstats)
+            if count == 0:
+                break
+        time.sleep(args.interval)
+        old_mountstats = mountstats
+        sample_time = args.interval
+        mountstats = parse_stats_file(args.infile)
+        # nfs mountpoints may appear or disappear, so we need to
+        # recheck the devices list each time we parse mountstats
+        devices = list_nfs_mounts(origdevices, mountstats)
+        print_iostat_summary(old_mountstats, mountstats, devices, sample_time)
 
     args.infile.close()
     if args.since:

@@ -614,37 +614,29 @@ client are listed.
                 print('Illegal <count> value %s' % arg)
                 return
 
-    # make certain devices contains only NFS mount points
-    devices = list_nfs_mounts(origdevices, mountstats)
-
     old_mountstats = None
     sample_time = 0.0
 
+    # make certain devices contains only NFS mount points
+    devices = list_nfs_mounts(origdevices, mountstats)
+    print_iostat_summary(old_mountstats, mountstats, devices, sample_time, options)
+
     if not interval_seen:
-        print_iostat_summary(old_mountstats, mountstats, devices, sample_time, options)
         return
 
-    if count_seen:
-        while count != 0:
-            print_iostat_summary(old_mountstats, mountstats, devices, sample_time, options)
-            old_mountstats = mountstats
-            time.sleep(interval)
-            sample_time = interval
-            mountstats = parse_stats_file('/proc/self/mountstats')
-            # nfs mountpoints may appear or disappear, so we need to
-            # recheck the devices list each time we parse mountstats
-            devices = list_nfs_mounts(origdevices,mountstats)
+    while True:
+        if count_seen:
             count -= 1
-    else: 
-        while True:
-            print_iostat_summary(old_mountstats, mountstats, devices, sample_time, options)
-            old_mountstats = mountstats
-            time.sleep(interval)
-            sample_time = interval
-            mountstats = parse_stats_file('/proc/self/mountstats')
-            # nfs mountpoints may appear or disappear, so we need to
-            # recheck the devices list each time we parse mountstats
-            devices = list_nfs_mounts(origdevices,mountstats)
+            if count == 0:
+                break
+        time.sleep(interval)
+        old_mountstats = mountstats
+        sample_time = interval
+        mountstats = parse_stats_file('/proc/self/mountstats')
+        # nfs mountpoints may appear or disappear, so we need to
+        # recheck the devices list each time we parse mountstats
+        devices = list_nfs_mounts(origdevices, mountstats)
+        print_iostat_summary(old_mountstats, mountstats, devices, sample_time, options)
 
 #
 # Main
