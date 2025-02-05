@@ -187,6 +187,11 @@ class DeviceData:
             found = True
             self.__parse_rpc_line(words)
 
+    def fstype(self):
+        """Return the fstype for the mountpoint
+        """
+        return self.__nfs_data['fstype']
+
     def is_nfs_mountpoint(self):
         """Return True if this is an NFS or NFSv4 mountpoint,
         otherwise return False
