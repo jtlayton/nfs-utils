@@ -476,41 +476,27 @@ def parse_stats_file(filename):
     return ms_dict
 
 def print_iostat_summary(old, new, devices, time, options):
-    stats = {}
-    diff_stats = {}
-    devicelist = []
-    if old:
-        # Trim device list to only include intersection of old and new data,
-        # this addresses umounts due to autofs mountpoints
-        for device in devices:
-            if "fstype autofs" not in str(old[device]):
-                devicelist.append(device)
-    else:
-        devicelist = devices
+    display_stats = {}
 
-    for device in devicelist:
-        stats[device] = DeviceData()
-        stats[device].parse_stats(new[device])
-        if old:
+    for device in devices:
+        stats = DeviceData()
+        stats.parse_stats(new[device])
+        if old and device in old:
             old_stats = DeviceData()
             old_stats.parse_stats(old[device])
-            diff_stats[device] = stats[device].compare_iostats(old_stats)
+            if stats.fstype() == old_stats.fstype():
+                display_stats[device] = stats.compare_iostats(old_stats)
+            else: # device is in old, but fstypes are different
+                display_stats[device] = stats
+        else: # device is only in new
+            display_stats[device] = stats
 
     if options.sort:
-        if old:
-            # We now have compared data and can print a comparison
-            # ordered by mountpoint ops per second
-            devicelist.sort(key=lambda x: diff_stats[x].ops(time), reverse=True)
-        else:
-            # First iteration, just sort by newly parsed ops/s
-            devicelist.sort(key=lambda x: stats[x].ops(time), reverse=True)
+        devices.sort(key=lambda x: display_stats[x].ops(time), reverse=True)
 
     count = 1
-    for device in devicelist:
-        if old:
-            diff_stats[device].display_iostats(time, options.which)
-        else:
-            stats[device].display_iostats(time, options.which)
+    for device in devices:
+        display_stats[device].display_iostats(time, options.which)
 
         count += 1
         if (count > options.list):
