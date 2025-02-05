@@ -511,10 +511,11 @@ def list_nfs_mounts(givenlist, mountstats):
     devicelist = []
     if len(givenlist) > 0:
         for device in givenlist:
-            stats = DeviceData()
-            stats.parse_stats(mountstats[device])
-            if stats.is_nfs_mountpoint():
-                devicelist += [device]
+            if device in mountstats:
+                stats = DeviceData()
+                stats.parse_stats(mountstats[device])
+                if stats.is_nfs_mountpoint():
+                    devicelist += [device]
     else:
         for device, descr in mountstats.items():
             stats = DeviceData()
