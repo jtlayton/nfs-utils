@@ -631,8 +631,8 @@ client are listed.
             time.sleep(interval)
             sample_time = interval
             mountstats = parse_stats_file('/proc/self/mountstats')
-            # automount mountpoints add and drop, if automount is involved
-            # we need to recheck the devices list when reparsing
+            # nfs mountpoints may appear or disappear, so we need to
+            # recheck the devices list each time we parse mountstats
             devices = list_nfs_mounts(origdevices,mountstats)
             if len(devices) == 0:
                 print('No NFS mount points were found')
@@ -645,8 +645,8 @@ client are listed.
             time.sleep(interval)
             sample_time = interval
             mountstats = parse_stats_file('/proc/self/mountstats')
-            # automount mountpoints add and drop, if automount is involved
-            # we need to recheck the devices list when reparsing
+            # nfs mountpoints may appear or disappear, so we need to
+            # recheck the devices list each time we parse mountstats
             devices = list_nfs_mounts(origdevices,mountstats)
             if len(devices) == 0:
                 print('No NFS mount points were found')
