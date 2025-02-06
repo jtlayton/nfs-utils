@@ -1285,7 +1285,7 @@ static int pool_mode_func(struct nl_sock *sock, int argc, char **argv)
 
 #define MAX_LISTENER_LEN (64 * 2 + 16)
 
-static void
+static int
 add_listener(const char *netid, const char *addr, const char *port)
 {
 		char buf[MAX_LISTENER_LEN];
@@ -1297,7 +1297,7 @@ add_listener(const char *netid, const char *addr, const char *port)
 			snprintf(buf, MAX_LISTENER_LEN, "+%s:%s:%s",
 				 netid, addr, port);
 		buf[MAX_LISTENER_LEN - 1] = '\0';
-		update_listeners(buf);
+		return update_listeners(buf);
 }
 
 static void
@@ -1350,11 +1350,12 @@ static int configure_versions(void)
 	return 0;
 }
 
-static void configure_listeners(void)
+static int configure_listeners(void)
 {
 	char *port, *rdma_port;
 	bool rdma, udp, tcp;
 	struct conf_list *hosts;
+	int ret = 0;
 
 	udp = conf_get_bool("nfsd", "udp", false);
 	tcp = conf_get_bool("nfsd", "tcp", true);
@@ -1378,20 +1379,23 @@ static void configure_listeners(void)
 		struct conf_list_node *n;
 		TAILQ_FOREACH(n, &(hosts->fields), link) {
 			if (udp)
-				add_listener("udp", n->field, port);
+				ret = add_listener("udp", n->field, port);
 			if (tcp)
-				add_listener("tcp", n->field, port);
+				ret = add_listener("tcp", n->field, port);
 			if (rdma)
 				add_listener("rdma", n->field, rdma_port);
+			if (ret)
+				return ret;
 		}
 	} else {
 		if (udp)
-			add_listener("udp", "", port);
+			ret = add_listener("udp", "", port);
 		if (tcp)
-			add_listener("tcp", "", port);
+			ret = add_listener("tcp", "", port);
 		if (rdma)
 			add_listener("rdma", "", rdma_port);
 	}
+	return ret;
 }
 
 static void autostart_usage(void)
@@ -1438,7 +1442,9 @@ static int autostart_func(struct nl_sock *sock, int argc, char ** argv)
 	if (ret)
 		return ret;
 
-	configure_listeners();
+	ret = configure_listeners();
+	if (ret)
+		return ret;
 	ret = set_listeners(sock);
 	if (ret)
 		return ret;
