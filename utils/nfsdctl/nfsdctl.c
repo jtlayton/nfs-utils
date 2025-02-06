@@ -1413,6 +1413,7 @@ static int autostart_func(struct nl_sock *sock, int argc, char ** argv)
 	struct conf_list *thread_str;
 	struct conf_list_node *n;
 	char *scope, *pool_mode;
+	bool failed_listeners = false;
 
 	optind = 1;
 	while ((opt = getopt_long(argc, argv, "h", help_only_options, NULL)) != -1) {
@@ -1447,7 +1448,7 @@ static int autostart_func(struct nl_sock *sock, int argc, char ** argv)
 		return ret;
 	ret = set_listeners(sock);
 	if (ret)
-		return ret;
+		failed_listeners = true;
 
 	grace = conf_get_num("nfsd", "grace-time", 0);
 	lease = conf_get_num("nfsd", "lease-time", 0);
@@ -1455,6 +1456,12 @@ static int autostart_func(struct nl_sock *sock, int argc, char ** argv)
 
 	thread_str = conf_get_list("nfsd", "threads");
 	pools = thread_str ? thread_str->cnt : 1;
+
+	/* if we fail to start one or more listeners, then cleanup by
+	 * starting 0 knfsd threads
+	 */
+	if (failed_listeners)
+		pools = 0;
 
 	threads = calloc(pools, sizeof(int));
 	if (!threads)
