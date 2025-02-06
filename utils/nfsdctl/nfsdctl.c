@@ -1283,21 +1283,26 @@ static int pool_mode_func(struct nl_sock *sock, int argc, char **argv)
 	return pool_mode_doit(sock, cmd, pool_mode);
 }
 
-#define MAX_LISTENER_LEN (64 * 2 + 16)
-
 static int
 add_listener(const char *netid, const char *addr, const char *port)
 {
-		char buf[MAX_LISTENER_LEN];
+		char *buf;
+		int ret;
+		int size = strlen(addr) + 1 + 16;
 
+		buf = calloc(size, sizeof(int));
+		if (!buf)
+			return -ENOMEM;
 		if (strchr(addr, ':'))
-			snprintf(buf, MAX_LISTENER_LEN, "+%s:[%s]:%s",
+			snprintf(buf, size, "+%s:[%s]:%s",
 				 netid, addr, port);
 		else
-			snprintf(buf, MAX_LISTENER_LEN, "+%s:%s:%s",
+			snprintf(buf, size, "+%s:%s:%s",
 				 netid, addr, port);
-		buf[MAX_LISTENER_LEN - 1] = '\0';
-		return update_listeners(buf);
+		buf[size - 1] = '\0';
+		ret = update_listeners(buf);
+		free(buf);
+		return ret;
 }
 
 static void
