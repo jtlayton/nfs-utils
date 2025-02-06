@@ -938,8 +938,6 @@ static void print_listeners(void)
 	}
 }
 
-#define BUFLEN (INET6_ADDRSTRLEN + 16)
-
 /*
  * Format is <+/-><netid>:<address>:port
  *
@@ -950,7 +948,7 @@ static void print_listeners(void)
  */
 static int update_listeners(const char *str)
 {
-	char buf[INET6_ADDRSTRLEN + 16];
+	char *buf;
 	char sign = *str;
 	char *netid, *addr, *port, *end;
 	struct addrinfo *res;
@@ -963,6 +961,9 @@ static int update_listeners(const char *str)
 	if (sign != '+' && sign != '-')
 		goto out_inval;
 
+	buf = malloc(strlen(str) + 1);
+	if (!buf)
+		goto out_inval;
 	strcpy(buf, str + 1);
 
 	/* netid is start */
@@ -971,18 +972,18 @@ static int update_listeners(const char *str)
 	/* find first ':' */
 	addr = strchr(buf, ':');
 	if (!addr)
-		goto out_inval;
+		goto out_inval_free;
 
 	if (addr == buf) {
 		/* empty netid */
-		goto out_inval;
+		goto out_inval_free;
 	}
 	*addr = '\0';
 	++addr;
 
 	port = strrchr(addr, ':');
 	if (!port)
-		goto out_inval;
+		goto out_inval_free;
 	if (port == addr) {
 		/* empty address, give gai a NULL ptr */
 		addr = NULL;
@@ -992,7 +993,7 @@ static int update_listeners(const char *str)
 
 	if (*port == '\0') {
 		/* empty port */
-		goto out_inval;
+		goto out_inval_free;
 	}
 
 	/* IPv6 addrs must be in square brackets */
@@ -1001,7 +1002,7 @@ static int update_listeners(const char *str)
 		++addr;
 		end = strchr(addr, ']');
 		if (!end)
-			goto out_inval;
+			goto out_inval_free;
 		if (end == addr)
 			addr = NULL;
 		*end = '\0';
@@ -1070,7 +1071,10 @@ static int update_listeners(const char *str)
 			++nfsd_socket_count;
 		}
 	}
+	free(buf);
 	return 0;
+out_inval_free:
+	free(buf);
 out_inval:
 	fprintf(stderr, "Invalid listener update string: %s", str);
 	return -EINVAL;
