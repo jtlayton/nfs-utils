@@ -1469,6 +1469,18 @@ static int configure_versions(void)
 	bool found_one = false;
 	char tag[20];
 
+	/*
+	 * First apply the default versX.Y settings from nfs.conf.
+	 */
+	update_nfsd_version(3, 0, true);
+	update_nfsd_version(4, 0, true);
+	update_nfsd_version(4, 1, true);
+	update_nfsd_version(4, 2, true);
+
+	/*
+	 * Then apply any versX.Y settings that are explicitly set in
+	 * nfs.conf.
+	 */
 	for (i = 2; i <= 4; ++i) {
 		sprintf(tag, "vers%d", i);
 		if (!conf_get_bool("nfsd", tag, true)) {
