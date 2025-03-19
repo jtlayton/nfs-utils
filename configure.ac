@@ -268,6 +268,10 @@ AC_ARG_ENABLE(nfsdctl,
 				                   [[int foo = NFSD_CMD_POOL_MODE_GET;]])],
 				   [AC_DEFINE([USE_SYSTEM_NFSD_NETLINK_H], 1,
 					      ["Use system's linux/nfsd_netlink.h"])])
+		AC_COMPILE_IFELSE([AC_LANG_PROGRAM([[#include <linux/lockd_netlink.h>]],
+				                   [[int foo = LOCKD_CMD_SERVER_GET;]])],
+				   [AC_DEFINE([USE_SYSTEM_LOCKD_NETLINK_H], 1,
+					      ["Use system's linux/lockd_netlink.h"])])
 	fi
 
 AC_ARG_ENABLE(nfsv4server,
