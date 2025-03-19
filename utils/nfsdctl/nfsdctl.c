@@ -43,8 +43,6 @@
  * gcc -I/usr/include/libnl3/ -o <prog-name> <prog-name>.c -lnl-3 -lnl-genl-3
  */
 
-static int debug_level;
-
 struct nfs_version {
 	uint8_t	major;
 	uint8_t	minor;
@@ -388,7 +386,7 @@ static struct nl_sock *netlink_sock_alloc(void)
 		return NULL;
 
 	if (genl_connect(sock)) {
-		fprintf(stderr, "Failed to connect to generic netlink\n");
+		xlog(L_ERROR, "Failed to connect to generic netlink");
 		nl_socket_free(sock);
 		return NULL;
 	}
@@ -407,18 +405,18 @@ static struct nl_msg *netlink_msg_alloc(struct nl_sock *sock)
 
 	id = genl_ctrl_resolve(sock, NFSD_FAMILY_NAME);
 	if (id < 0) {
-		fprintf(stderr, "%s not found\n", NFSD_FAMILY_NAME);
+		xlog(L_ERROR, "%s not found", NFSD_FAMILY_NAME);
 		return NULL;
 	}
 
 	msg = nlmsg_alloc();
 	if (!msg) {
-		fprintf(stderr, "failed to allocate netlink message\n");
+		xlog(L_ERROR, "failed to allocate netlink message");
 		return NULL;
 	}
 
 	if (!genlmsg_put(msg, 0, 0, id, 0, 0, 0, 0)) {
-		fprintf(stderr, "failed to allocate netlink message\n");
+		xlog(L_ERROR, "failed to allocate netlink message");
 		nlmsg_free(msg);
 		return NULL;
 	}
@@ -460,7 +458,7 @@ static int status_func(struct nl_sock *sock, int argc, char ** argv)
 
 	cb = nl_cb_alloc(NL_CB_CUSTOM);
 	if (!cb) {
-		fprintf(stderr, "failed to allocate netlink callbacks\n");
+		xlog(L_ERROR, "failed to allocate netlink callbacks");
 		ret = 1;
 		goto out;
 	}
@@ -478,7 +476,7 @@ static int status_func(struct nl_sock *sock, int argc, char ** argv)
 	while (ret > 0)
 		nl_recvmsgs(sock, cb);
 	if (ret < 0) {
-		fprintf(stderr, "Error: %s\n", strerror(-ret));
+		xlog(L_ERROR, "Error: %s", strerror(-ret));
 		ret = 1;
 	}
 out_cb:
@@ -519,14 +517,14 @@ static int threads_doit(struct nl_sock *sock, int cmd, int grace, int lease,
 
 	cb = nl_cb_alloc(NL_CB_CUSTOM);
 	if (!cb) {
-		fprintf(stderr, "failed to allocate netlink callbacks\n");
+		xlog(L_ERROR, "failed to allocate netlink callbacks");
 		ret = 1;
 		goto out;
 	}
 
 	ret = nl_send_auto(sock, msg);
 	if (ret < 0) {
-		fprintf(stderr, "send failed (%d)!\n", ret);
+		xlog(L_ERROR, "send failed (%d)!", ret);
 		goto out_cb;
 	}
 
@@ -539,7 +537,7 @@ static int threads_doit(struct nl_sock *sock, int cmd, int grace, int lease,
 	while (ret > 0)
 		nl_recvmsgs(sock, cb);
 	if (ret < 0) {
-		fprintf(stderr, "Error: %s\n", strerror(-ret));
+		xlog(L_ERROR, "Error: %s", strerror(-ret));
 		ret = 1;
 	}
 out_cb:
@@ -584,13 +582,13 @@ static int threads_func(struct nl_sock *sock, int argc, char **argv)
 
 			/* empty string? */
 			if (targv[i][0] == '\0') {
-				fprintf(stderr, "Invalid threads value %s.\n", targv[i]);
+				xlog(L_ERROR, "Invalid threads value %s.", targv[i]);
 				return 1;
 			}
 
 			pool_threads[i] = strtol(targv[i], &endptr, 0);
 			if (!endptr || *endptr != '\0') {
-				fprintf(stderr, "Invalid threads value %s.\n", argv[1]);
+				xlog(L_ERROR, "Invalid threads value %s.", argv[1]);
 				return 1;
 			}
 		}
@@ -619,14 +617,14 @@ static int fetch_nfsd_versions(struct nl_sock *sock)
 
 	cb = nl_cb_alloc(NL_CB_CUSTOM);
 	if (!cb) {
-		fprintf(stderr, "failed to allocate netlink callbacks\n");
+		xlog(L_ERROR, "failed to allocate netlink callbacks");
 		ret = 1;
 		goto out;
 	}
 
 	ret = nl_send_auto(sock, msg);
 	if (ret < 0) {
-		fprintf(stderr, "send failed: %d\n", ret);
+		xlog(L_ERROR, "send failed: %d", ret);
 		goto out_cb;
 	}
 
@@ -639,7 +637,7 @@ static int fetch_nfsd_versions(struct nl_sock *sock)
 	while (ret > 0)
 		nl_recvmsgs(sock, cb);
 	if (ret < 0) {
-		fprintf(stderr, "Error: %s\n", strerror(-ret));
+		xlog(L_ERROR, "Error: %s", strerror(-ret));
 		ret = 1;
 	}
 out_cb:
@@ -688,7 +686,7 @@ static int set_nfsd_versions(struct nl_sock *sock)
 
 		a = nla_nest_start(msg, NLA_F_NESTED | NFSD_A_SERVER_PROTO_VERSION);
 		if (!a) {
-			fprintf(stderr, "Unable to allocate version nest!\n");
+			xlog(L_ERROR, "Unable to allocate version nest!");
 			ret = 1;
 			goto out;
 		}
@@ -705,14 +703,14 @@ static int set_nfsd_versions(struct nl_sock *sock)
 
 	cb = nl_cb_alloc(NL_CB_CUSTOM);
 	if (!cb) {
-		fprintf(stderr, "Failed to allocate netlink callbacks\n");
+		xlog(L_ERROR, "Failed to allocate netlink callbacks");
 		ret = 1;
 		goto out;
 	}
 
 	ret = nl_send_auto(sock, msg);
 	if (ret < 0) {
-		fprintf(stderr, "Send failed: %d\n", ret);
+		xlog(L_ERROR, "Send failed: %d", ret);
 		goto out_cb;
 	}
 
@@ -725,7 +723,7 @@ static int set_nfsd_versions(struct nl_sock *sock)
 	while (ret > 0)
 		nl_recvmsgs(sock, cb);
 	if (ret < 0) {
-		fprintf(stderr, "Error: %s\n", strerror(-ret));
+		xlog(L_ERROR, "Error: %s", strerror(-ret));
 		ret = 1;
 	}
 out_cb:
@@ -750,7 +748,7 @@ static int update_nfsd_version(int major, int minor, bool enabled)
 	/* the kernel doesn't support this version */
 	if (!enabled)
 		return 0;
-	fprintf(stderr, "This kernel does not support NFS version %d.%d\n", major, minor);
+	xlog(L_ERROR, "This kernel does not support NFS version %d.%d", major, minor);
 	return -EINVAL;
 }
 
@@ -807,7 +805,7 @@ static int version_func(struct nl_sock *sock, int argc, char ** argv)
 
 			ret = sscanf(str, "%c%d.%d\n", &sign, &major, &minor);
 			if (ret < 2) {
-				fprintf(stderr, "Invalid version string (%d) %s\n", ret, str);
+				xlog(L_ERROR, "Invalid version string (%d) %s", ret, str);
 				return -EINVAL;
 			}
 
@@ -819,7 +817,7 @@ static int version_func(struct nl_sock *sock, int argc, char ** argv)
 				enabled = false;
 				break;
 			default:
-				fprintf(stderr, "Invalid version string %s\n", str);
+				xlog(L_ERROR, "Invalid version string %s", str);
 				return -EINVAL;
 			}
 
@@ -865,14 +863,14 @@ static int fetch_current_listeners(struct nl_sock *sock)
 
 	cb = nl_cb_alloc(NL_CB_CUSTOM);
 	if (!cb) {
-		fprintf(stderr, "failed to allocate netlink callbacks\n");
+		xlog(L_ERROR, "failed to allocate netlink callbacks");
 		ret = 1;
 		goto out;
 	}
 
 	ret = nl_send_auto(sock, msg);
 	if (ret < 0) {
-		fprintf(stderr, "send failed: %d\n", ret);
+		xlog(L_ERROR, "send failed: %d", ret);
 		goto out_cb;
 	}
 
@@ -885,7 +883,7 @@ static int fetch_current_listeners(struct nl_sock *sock)
 	while (ret > 0)
 		nl_recvmsgs(sock, cb);
 	if (ret < 0) {
-		fprintf(stderr, "Error: %s\n", strerror(-ret));
+		xlog(L_ERROR, "Error: %s", strerror(-ret));
 		ret = 1;
 	}
 out_cb:
@@ -1021,7 +1019,7 @@ static int update_listeners(const char *str)
 	 */
 	ret = getaddrinfo(addr, port, &hints, &res);
 	if (ret) {
-		fprintf(stderr, "getaddrinfo of \"%s\" failed: %s\n",
+		xlog(L_ERROR, "getaddrinfo of \"%s\" failed: %s",
 			addr, gai_strerror(ret));
 		return -EINVAL;
 	}
@@ -1076,7 +1074,7 @@ static int update_listeners(const char *str)
 out_inval_free:
 	free(buf);
 out_inval:
-	fprintf(stderr, "Invalid listener update string: %s", str);
+	xlog(L_ERROR, "Invalid listener update string: %s", str);
 	return -EINVAL;
 }
 
@@ -1106,7 +1104,7 @@ static int set_listeners(struct nl_sock *sock)
 
 		a = nla_nest_start(msg, NLA_F_NESTED | NFSD_A_SERVER_SOCK_ADDR);
 		if (!a) {
-			fprintf(stderr, "Unable to allocate listener nest!\n");
+			xlog(L_ERROR, "Unable to allocate listener nest!");
 			ret = 1;
 			goto out;
 		}
@@ -1121,14 +1119,14 @@ static int set_listeners(struct nl_sock *sock)
 
 	cb = nl_cb_alloc(NL_CB_CUSTOM);
 	if (!cb) {
-		fprintf(stderr, "Failed to allocate netlink callbacks\n");
+		xlog(L_ERROR, "Failed to allocate netlink callbacks");
 		ret = 1;
 		goto out;
 	}
 
 	ret = nl_send_auto(sock, msg);
 	if (ret < 0) {
-		fprintf(stderr, "Send failed: %d\n", ret);
+		xlog(L_ERROR, "Send failed: %d", ret);
 		goto out_cb;
 	}
 
@@ -1141,7 +1139,7 @@ static int set_listeners(struct nl_sock *sock)
 	while (ret > 0)
 		nl_recvmsgs(sock, cb);
 	if (ret < 0) {
-		fprintf(stderr, "Error: %s\n", strerror(-ret));
+		xlog(L_ERROR, "Error: %s", strerror(-ret));
 		ret = 1;
 	}
 out_cb:
@@ -1218,14 +1216,14 @@ static int pool_mode_doit(struct nl_sock *sock, int cmd, const char *pool_mode)
 
 	cb = nl_cb_alloc(NL_CB_CUSTOM);
 	if (!cb) {
-		fprintf(stderr, "failed to allocate netlink callbacks\n");
+		xlog(L_ERROR, "failed to allocate netlink callbacks");
 		ret = 1;
 		goto out;
 	}
 
 	ret = nl_send_auto(sock, msg);
 	if (ret < 0) {
-		fprintf(stderr, "send failed (%d)!\n", ret);
+		xlog(L_ERROR, "send failed (%d)!", ret);
 		goto out_cb;
 	}
 
@@ -1238,7 +1236,7 @@ static int pool_mode_doit(struct nl_sock *sock, int cmd, const char *pool_mode)
 	while (ret > 0)
 		nl_recvmsgs(sock, cb);
 	if (ret < 0) {
-		fprintf(stderr, "Error: %s\n", strerror(-ret));
+		xlog(L_ERROR, "Error: %s", strerror(-ret));
 		ret = 1;
 	}
 out_cb:
@@ -1275,7 +1273,7 @@ static int pool_mode_func(struct nl_sock *sock, int argc, char **argv)
 
 		/* empty string? */
 		if (*targv[0] == '\0') {
-			fprintf(stderr, "Invalid threads value %s.\n", targv[0]);
+			xlog(L_ERROR, "Invalid threads value %s.", targv[0]);
 			return 1;
 		}
 		pool_mode = targv[0];
@@ -1479,7 +1477,7 @@ static int autostart_func(struct nl_sock *sock, int argc, char ** argv)
 
 			threads[idx++] = strtol(n->field, &endptr, 0);
 			if (!endptr || *endptr != '\0') {
-				fprintf(stderr, "Invalid threads value %s.\n", n->field);
+				xlog(L_ERROR, "Invalid threads value %s.", n->field);
 				ret = -EINVAL;
 				goto out;
 			}
@@ -1535,10 +1533,11 @@ static nfsdctl_func func[] = {
 static void usage(void)
 {
 	printf("Usage:\n");
-	printf("%s [-hv] [COMMAND] [ARGS]\n", taskname);
+	printf("%s [-hdsV] [COMMAND] [ARGS]\n", taskname);
 	printf("  options:\n");
 	printf("    -h | --help          usage info\n");
-	printf("    -d | --debug=NUM     enable debugging\n");
+	printf("    -d | --debug         enable debugging\n");
+	printf("    -s | --syslog        log messages to syslog\n");
 	printf("    -V | --version       print version info\n");
 	printf("  commands:\n");
 	printf("    pool-mode            get/set host pool mode setting\n");
@@ -1552,7 +1551,8 @@ static void usage(void)
 /* Options given before the command string */
 static const struct option pre_options[] = {
 	{ "help", no_argument, NULL, 'h' },
-	{ "debug", required_argument, NULL, 'd' },
+	{ "debug", no_argument, NULL, 'd' },
+	{ "syslog", no_argument, NULL, 's' },
 	{ "version", no_argument, NULL, 'V' },
 	{ },
 };
@@ -1605,8 +1605,6 @@ static int run_commandline(struct nl_sock *sock)
 		ret = tokenize_string(line, &argc, argv);
 		if (!ret)
 			ret = run_one_command(sock, argc, argv);
-		if (ret)
-			fprintf(stderr, "Error: %s\n", strerror(ret));
 		free(line);
 	}
 	return 0;
@@ -1615,28 +1613,40 @@ static int run_commandline(struct nl_sock *sock)
 int main(int argc, char **argv)
 {
 	int opt, ret;
-	struct nl_sock *sock = netlink_sock_alloc();
-
-	if (!sock) {
-		fprintf(stderr, "Unable to allocate netlink socket!");
-		return 1;
-	}
+	struct nl_sock *sock;
 
 	taskname = argv[0];
 
+	xlog_syslog(0);
+	xlog_stderr(1);
+
 	/* Parse the preliminary options */
-	while ((opt = getopt_long(argc, argv, "+hd:V", pre_options, NULL)) != -1) {
+	while ((opt = getopt_long(argc, argv, "+hdsV", pre_options, NULL)) != -1) {
 		switch (opt) {
 		case 'h':
 			usage();
 			return 0;
 		case 'd':
-			debug_level = atoi(optarg);
+			xlog_config(D_ALL, 1);
+			break;
+		case 's':
+			xlog_syslog(1);
+			xlog_stderr(0);
 			break;
 		case 'V':
 			// FIXME: print_version();
 			return 0;
 		}
+	}
+
+	xlog_open(basename(argv[0]));
+
+	xlog(D_GENERAL, "nfsdctl started");
+
+	sock = netlink_sock_alloc();
+	if (!sock) {
+		xlog(L_ERROR, "Unable to allocate netlink socket!");
+		return 1;
 	}
 
 	if (optind > argc) {
@@ -1650,5 +1660,6 @@ int main(int argc, char **argv)
 		ret = run_one_command(sock, argc - optind, &argv[optind]);
 
 	nl_socket_free(sock);
+	xlog(D_GENERAL, "nfsdctl exiting");
 	return ret;
 }

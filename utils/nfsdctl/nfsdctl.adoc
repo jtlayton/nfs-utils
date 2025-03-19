@@ -30,6 +30,9 @@ To get information about different subcommand usage, pass the subcommand the
 *-h, --help*::
   Print program help text
 
+*-s, --syslog*::
+  Log to syslog instead of to stderr (the default)
+
 *-V, --version*::
   Print program version
 
