@@ -1634,7 +1634,7 @@ int main(int argc, char **argv)
 			xlog_stderr(0);
 			break;
 		case 'V':
-			// FIXME: print_version();
+			fprintf(stdout, "nfsdctl: " VERSION "\n");
 			return 0;
 		}
 	}
