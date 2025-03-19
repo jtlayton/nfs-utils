@@ -1539,7 +1539,7 @@ static int configure_listeners(void)
 			if (tcp)
 				ret = add_listener("tcp", n->field, port);
 			if (rdma)
-				add_listener("rdma", n->field, rdma_port);
+				ret = add_listener("rdma", n->field, rdma_port);
 			if (ret)
 				return ret;
 		}
@@ -1549,7 +1549,7 @@ static int configure_listeners(void)
 		if (tcp)
 			ret = add_listener("tcp", "", port);
 		if (rdma)
-			add_listener("rdma", "", rdma_port);
+			ret = add_listener("rdma", "", rdma_port);
 	}
 	return ret;
 }
