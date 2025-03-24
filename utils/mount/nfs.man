@@ -618,6 +618,17 @@ option is not specified,
 the default behavior depends on the kernel version,
 but is usually equivalent to
 .BR "xprtsec=none" .
+.TP 1.5i
+.BI noalignwrite
+This option disables the default behavior of extending buffered write operations
+to full page boundaries.
+.IP
+Normally, the NFS client rounds non-aligned buffered writes up to the system
+page size, which can lead to "lost writes" when multiple clients write
+concurrently to distinct non-overlapping regions. Use this option when your
+applications perform non-aligned buffered writes and you can guarantee that file
+regions do not overlap, thus avoiding the need for file locking.
+.IP
 .SS "Options for NFS versions 2 and 3 only"
 Use these options, along with the options in the above subsection,
 for NFS versions 2 and 3 only.
