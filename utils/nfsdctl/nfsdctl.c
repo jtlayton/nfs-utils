@@ -1417,7 +1417,6 @@ static int lockd_configure(struct nl_sock *sock, int grace)
 {
 	char *tcp_svc, *udp_svc;
 	int tcpport = 0, udpport = 0;
-	int ret;
 
 	tcp_svc = conf_get_str("lockd", "port");
 	if (tcp_svc) {
@@ -1432,6 +1431,8 @@ static int lockd_configure(struct nl_sock *sock, int grace)
 		if (udpport < 0)
 			return 1;
 	}
+
+	return lockd_config_doit(sock, LOCKD_CMD_SERVER_SET, grace, tcpport, udpport);
 }
 
 static int
