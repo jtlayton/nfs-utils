@@ -20,8 +20,8 @@ if not sunrpc.is_dir():
     sys.exit(1)
 
 
-def read_addr_file(path):
-    """Read an xprt address file."""
+def read_sysfs_file(path):
+    """Read a sysfs file."""
     try:
         with open(path, 'r') as f:
             return f.readline().strip()
@@ -29,11 +29,11 @@ def read_addr_file(path):
         return "(enoent)"
 
 
-def write_addr_file(path, newaddr):
-    """Write a new address to an xprt address file."""
+def write_sysfs_file(path, input):
+    """Write 'input' to a sysfs file."""
     with open(path, 'w') as f:
-        f.write(newaddr)
-    return read_addr_file(path)
+        f.write(input)
+    return read_sysfs_file(path)
 
 
 def read_info_file(path):
@@ -56,8 +56,8 @@ class Xprt:
         self.name = path.stem.rsplit("-", 1)[0]
         self.type = path.stem.split("-")[2]
         self.info = read_info_file(path / "xprt_info")
-        self.dstaddr = read_addr_file(path / "dstaddr")
-        self.srcaddr = read_addr_file(path / "srcaddr")
+        self.dstaddr = read_sysfs_file(path / "dstaddr")
+        self.srcaddr = read_sysfs_file(path / "srcaddr")
         self.read_state()
 
     def __lt__(self, rhs):
@@ -106,7 +106,7 @@ class Xprt:
 
     def set_dstaddr(self, newaddr):
         """Change the dstaddr of an xprt."""
-        self.dstaddr = write_addr_file(self.path / "dstaddr", newaddr)
+        self.dstaddr = write_sysfs_file(self.path / "dstaddr", newaddr)
 
     def set_state(self, state):
         """Change the state of an xprt."""
