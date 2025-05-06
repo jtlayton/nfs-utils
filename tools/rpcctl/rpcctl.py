@@ -20,13 +20,13 @@ if not sunrpc.is_dir():
     sys.exit(1)
 
 
-def read_sysfs_file(path):
+def read_sysfs_file(path, *, missing="enoent"):
     """Read a sysfs file."""
     try:
         with open(path, 'r') as f:
             return f.readline().strip()
     except FileNotFoundError:
-        return "(enoent)"
+        return f"({missing})"
 
 
 def write_sysfs_file(path, input):
@@ -58,6 +58,7 @@ class Xprt:
         self.info = read_info_file(path / "xprt_info")
         self.dstaddr = read_sysfs_file(path / "dstaddr")
         self.srcaddr = read_sysfs_file(path / "srcaddr")
+        self.xprtsec = read_sysfs_file(path / "xprtsec", missing="unknown")
         self.read_state()
 
     def __lt__(self, rhs):
@@ -67,7 +68,8 @@ class Xprt:
     def _xprt(self):
         main = ", main" if self.info.get("main_xprt") else ""
         return f"{self.name}: {self.type}, {self.dstaddr}, " \
-               f"port {self.info['dst_port']}, state <{self.state}>{main}"
+               f"port {self.info['dst_port']}, sec {self.xprtsec}, " \
+               f"state <{self.state}>{main}"
 
     def _src_reqs(self):
         return f"	Source: {self.srcaddr}, port {self.info['src_port']}, " \
