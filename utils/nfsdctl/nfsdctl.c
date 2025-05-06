@@ -436,7 +436,7 @@ static struct nl_msg *netlink_msg_alloc(struct nl_sock *sock, const char *family
 
 	id = genl_ctrl_resolve(sock, family);
 	if (id < 0) {
-		xlog(L_ERROR, "%s not found", NFSD_FAMILY_NAME);
+		xlog(L_ERROR, "failed to resolve %s generic netlink family", family);
 		return NULL;
 	}
 
@@ -447,7 +447,7 @@ static struct nl_msg *netlink_msg_alloc(struct nl_sock *sock, const char *family
 	}
 
 	if (!genlmsg_put(msg, 0, 0, id, 0, 0, 0, 0)) {
-		xlog(L_ERROR, "failed to allocate netlink message");
+		xlog(L_ERROR, "failed to add generic netlink headers to netlink message");
 		nlmsg_free(msg);
 		return NULL;
 	}
@@ -1592,8 +1592,6 @@ static int autostart_func(struct nl_sock *sock, int argc, char ** argv)
 		}
 	}
 
-	read_nfsd_conf();
-
 	grace = conf_get_num("nfsd", "grace-time", 0);
 	ret = lockd_configure(sock, grace);
 	if (ret) {
@@ -1823,6 +1821,8 @@ int main(int argc, char **argv)
 
 	xlog_syslog(0);
 	xlog_stderr(1);
+
+	read_nfsd_conf();
 
 	/* Parse the preliminary options */
 	while ((opt = getopt_long(argc, argv, "+hdsV", pre_options, NULL)) != -1) {
