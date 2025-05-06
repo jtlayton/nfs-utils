@@ -213,6 +213,12 @@ class XprtSwitch:
         parser.set_defaults(func=XprtSwitch.show, switch=None)
         subparser = parser.add_subparsers()
 
+        add = subparser.add_parser("add-xprt",
+                                   help="Add an xprt to the switch")
+        add.add_argument("switch", metavar="SWITCH", nargs=1,
+                         help="Name of a specific xprt switch to modify")
+        add.set_defaults(func=XprtSwitch.add_xprt)
+
         show = subparser.add_parser("show", help="Show xprt switches")
         show.add_argument("switch", metavar="SWITCH", nargs='?',
                           help="Name of a specific switch to show")
@@ -235,6 +241,11 @@ class XprtSwitch:
         if name:
             return [XprtSwitch(xprt_switches / name)]
         return [XprtSwitch(f) for f in sorted(xprt_switches.iterdir())]
+
+    def add_xprt(args):
+        """Handle the `rpcctl switch add-xprt` command."""
+        for switch in XprtSwitch.get_by_name(args.switch[0]):
+            write_sysfs_file(switch.path / "add_xprt", "1")
 
     def show(args):
         """Handle the `rpcctl switch show` command."""
