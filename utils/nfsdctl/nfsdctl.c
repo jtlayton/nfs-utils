@@ -1521,7 +1521,7 @@ static int configure_versions(void)
 
 static int configure_listeners(void)
 {
-	char *port, *rdma_port;
+	char *port, *rdma_port = NULL;
 	bool rdma, udp, tcp;
 	struct conf_list *hosts;
 	int ret = 0;
@@ -1675,10 +1675,7 @@ static void nlm_usage(void)
 
 static int nlm_func(struct nl_sock *sock, int argc, char ** argv)
 {
-	int *threads, grace, lease, idx, ret, opt, pools;
-	struct conf_list *thread_str;
-	struct conf_list_node *n;
-	char *scope, *pool_mode;
+	int opt;
 
 	optind = 1;
 	while ((opt = getopt_long(argc, argv, "h", help_only_options, NULL)) != -1) {
