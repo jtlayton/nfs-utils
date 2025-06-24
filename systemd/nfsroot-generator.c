@@ -78,10 +78,10 @@ static int get_nfsroot_info_from_cmdline(struct nfsroot_info *info)
 		/* Mount type: "nfs" or "nfs4" */
 		colon = strchr(root, ':');
 		if (colon == NULL)
-			return EINVAL;
+			return 0;
 		if (strncmp(root, "nfs:", strlen("nfs:")) &&
 			strncmp(root, "nfs4:", strlen("nfs4:")))
-			return EINVAL;
+			return 0;
 
 		nfsroot = colon + 1;
 	}
