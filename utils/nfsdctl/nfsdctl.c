@@ -1474,7 +1474,7 @@ static int configure_versions(void)
 	 * First apply the default versX.Y settings from nfs.conf.
 	 */
 	update_nfsd_version(3, 0, true);
-	update_nfsd_version(4, 0, true);
+	update_nfsd_version(4, 0, false);
 	update_nfsd_version(4, 1, true);
 	update_nfsd_version(4, 2, true);
 
