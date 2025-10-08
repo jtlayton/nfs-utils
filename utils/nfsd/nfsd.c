@@ -134,9 +134,10 @@ main(int argc, char **argv)
 		}
 	}
 
-	/* We assume the kernel will default all minor versions to 'on',
-	 * and allow the config file to disable some.
+	/* We assume the kernel will default all minor versions besides '0'
+	 * to 'on', and allow the config file to disable some.
 	 */
+	NFSCTL_MINORUNSET(minorvers, 0);
 	for (i = NFS4_MINMINOR; i <= NFS4_MAXMINOR; i++) {
 		char tag[20];
 		sprintf(tag, "vers4.%d", i);
