@@ -456,12 +456,14 @@ gssd_get_single_krb5_cred(krb5_context context,
 	krb5_get_init_creds_opt_set_tkt_life(opts, 5*60);
 #endif
 
+	pthread_mutex_lock(&ple_lock);
 	if ((code = krb5_get_init_creds_opt_set_out_ccache(context, opts,
 							   ccache))) {
 		k5err = gssd_k5_err_msg(context, code);
 		printerr(1, "WARNING: %s while initializing ccache for "
 			 "principal '%s' using keytab '%s'\n", k5err,
 			 pname ? pname : "<unparsable>", kt_name);
+		pthread_mutex_unlock(&ple_lock);
 		goto out;
 	}
 	if ((code = krb5_get_init_creds_keytab(context, &my_creds, ple->princ,
@@ -470,10 +472,10 @@ gssd_get_single_krb5_cred(krb5_context context,
 		printerr(1, "WARNING: %s while getting initial ticket for "
 			 "principal '%s' using keytab '%s'\n", k5err,
 			 pname ? pname : "<unparsable>", kt_name);
+		pthread_mutex_unlock(&ple_lock);
 		goto out;
 	}
 
-	pthread_mutex_lock(&ple_lock);
 	ple->endtime = my_creds.times.endtime;
 	pthread_mutex_unlock(&ple_lock);
 
