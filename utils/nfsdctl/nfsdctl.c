@@ -320,6 +320,9 @@ static void parse_threads_get(struct genlmsghdr *gnlh)
 		case NFSD_A_SERVER_SCOPE:
 			printf("scope: %s\n", (const char *)nla_data(attr));
 			break;
+		case NFSD_A_SERVER_MAX_THREADS:
+			printf("max-threads: %u\n", nla_get_u32(attr));
+			break;
 		case NFSD_A_SERVER_THREADS:
 			pool_threads[i++] = nla_get_u32(attr);
 			break;
@@ -518,7 +521,7 @@ out:
 }
 
 static int threads_doit(struct nl_sock *sock, int cmd, int grace, int lease,
-			int pool_count, int *pool_threads, char *scope)
+			int pool_count, int *pool_threads, char *scope, int maxthreads)
 {
 	struct genlmsghdr *ghdr;
 	struct nlmsghdr *nlh;
@@ -540,6 +543,8 @@ static int threads_doit(struct nl_sock *sock, int cmd, int grace, int lease,
 			nla_put_u32(msg, NFSD_A_SERVER_LEASETIME, lease);
 		if (scope)
 			nla_put_string(msg, NFSD_A_SERVER_SCOPE, scope);
+		if (maxthreads)
+			nla_put_u32(msg, NFSD_A_SERVER_MAX_THREADS, maxthreads);
 		for (i = 0; i < pool_count; ++i)
 			nla_put_u32(msg, NFSD_A_SERVER_THREADS, pool_threads[i]);
 	}
@@ -624,7 +629,7 @@ static int threads_func(struct nl_sock *sock, int argc, char **argv)
 			}
 		}
 	}
-	return threads_doit(sock, cmd, 0, 0, pools, pool_threads, NULL);
+	return threads_doit(sock, cmd, 0, 0, pools, pool_threads, NULL, 0);
 }
 
 /*
@@ -1578,7 +1583,7 @@ static void autostart_usage(void)
 
 static int autostart_func(struct nl_sock *sock, int argc, char ** argv)
 {
-	int *threads, grace, lease, idx, ret, opt, pools;
+	int *threads, grace, lease, idx, ret, opt, pools, maxthreads;
 	struct conf_list *thread_str;
 	struct conf_list_node *n;
 	char *scope, *pool_mode;
@@ -1659,9 +1664,10 @@ static int autostart_func(struct nl_sock *sock, int argc, char ** argv)
 
 	lease = conf_get_num("nfsd", "lease-time", 0);
 	scope = conf_get_str("nfsd", "scope");
+	maxthreads = conf_get_num("nfsd", "max-threads", 0);
 
 	ret = threads_doit(sock, NFSD_CMD_THREADS_SET, grace, lease, pools,
-			   threads, scope);
+			   threads, scope, maxthreads);
 out:
 	free(threads);
 	return ret;
