@@ -32,7 +32,7 @@ unit_files += \
     nfsv4-server.service
 endif
 
-if CONFIG_NFSV41
+if CONFIG_BLKMAPD
 unit_files += \
     nfs-blkmap.service
 endif

@@ -85,22 +85,22 @@ AC_ARG_ENABLE(nfsv4,
 	AC_SUBST(enable_nfsv4)
 	AM_CONDITIONAL(CONFIG_NFSV4, [test "$enable_nfsv4" = "yes"])
 
-AC_ARG_ENABLE(nfsv41,
-	[AS_HELP_STRING([--disable-nfsv41],[disable support for NFSv41 @<:@default=no@:>@])],
-	enable_nfsv41=$enableval,
-	enable_nfsv41=yes)
-	if test "$enable_nfsv41" = yes; then
+AC_ARG_ENABLE(blkmapd,
+	[AS_HELP_STRING([--enable-blkmapd],[enable support for blkmapd @<:@default=no@:>@])],
+	enable_blkmapd=$enableval,
+	enable_blkmapd=no)
+	if test "$enable_blkmapd" = yes; then
 		if test "$enable_nfsv4" != yes; then
-			AC_MSG_WARN([NFS v4 is not enabled. Disabling NFS v4.1])
-			enable_nfsv41=no
+			AC_MSG_WARN([NFS v4 is not enabled. Disabling blkmapd.])
+			enable_blkmapd=no
 		fi
 		BLKMAPD=blkmapd
 	else
-		enable_nfsv41=
+		enable_blkmapd=
 		BLKMAPD=
 	fi
-	AC_SUBST(enable_nfsv41)
-	AM_CONDITIONAL(CONFIG_NFSV41, [test "$enable_nfsv41" = "yes"])
+	AC_SUBST(enable_blkmapd)
+	AM_CONDITIONAL(CONFIG_BLKMAPD, [test "$enable_blkmapd" = "yes"])
 
 AC_ARG_ENABLE(gss,
 	[AS_HELP_STRING([--disable-gss],[disable client support for rpcsec_gss @<:@default=no@:>@])],
@@ -398,7 +398,7 @@ else
   enable_nfsdcltrack="no"
 fi
 
-if test "$enable_nfsv41" = yes; then
+if test "$enable_blkmapd" = yes; then
   AC_CHECK_LIB([devmapper], [dm_task_create], [LIBDEVMAPPER="-ldevmapper"], AC_MSG_ERROR([libdevmapper needed]))
   AC_CHECK_HEADER(libdevmapper.h, , AC_MSG_ERROR([Cannot find devmapper header file libdevmapper.h]))
   AC_CHECK_HEADER(sys/inotify.h, , AC_MSG_ERROR([Cannot find header file sys/inotify.h]))
