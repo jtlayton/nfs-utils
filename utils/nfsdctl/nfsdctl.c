@@ -967,6 +967,17 @@ static void print_listeners(void)
 	}
 }
 
+static bool ipv6_is_enabled(void)
+{
+	int s;
+
+	s = socket(AF_INET6, SOCK_STREAM, 0);
+	if (s < 0)
+		return false;
+	close(s);
+	return true;
+}
+
 /*
  * Format is <+/-><netid>:<address>:port
  *
@@ -1081,7 +1092,8 @@ static int update_listeners(const char *str)
 					continue;
 			case AF_INET6:
 				if (r6->sin6_port != l6->sin6_port ||
-				    memcmp(&r6->sin6_addr, &l6->sin6_addr, sizeof(l6->sin6_addr)))
+				    memcmp(&r6->sin6_addr, &l6->sin6_addr, sizeof(l6->sin6_addr)) ||
+				    !ipv6_is_enabled())
 					continue;
 			default:
 
@@ -1127,6 +1139,11 @@ static int set_listeners(struct nl_sock *sock)
 		struct server_socket *sock = &nfsd_sockets[i];
 		struct nlattr *a;
 
+		if (sock->ss.ss_family == AF_INET6 && !ipv6_is_enabled()) {
+			xlog(L_WARNING, "IPv6 isn't enabled, skip IPv6 "
+					"listener\n");
+			continue;
+		}
 		if (sock->ss.ss_family == 0)
 			break;
 
