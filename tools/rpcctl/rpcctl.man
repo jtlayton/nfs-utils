@@ -31,7 +31,7 @@ If \fICLIENT \fRwas provided, then only show information about a single RPC clie
 .P
 .SS rpcctl switch \fR- \fBCommands operating on groups of transports
 .IP "\fBadd-xprt \fISWITCH"
-Add an aditional transport to the \fISWITCH\fR.
+Add an additional transport to the \fISWITCH\fR.
 Note that the new transport will take its values from the "main" transport.
 .IP "\fBset \fISWITCH \fBdstaddr \fINEWADDR"
 Change the destination address of all transports in the \fISWITCH \fRto \fINEWADDR\fR.
