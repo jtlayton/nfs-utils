@@ -262,6 +262,8 @@ AC_ARG_ENABLE(nfsdctl,
 		PKG_CHECK_MODULES(LIBNLGENL3, libnl-genl-3.0 >= 3.1)
 		PKG_CHECK_MODULES(LIBREADLINE, readline)
 		AC_CHECK_HEADERS(linux/nfsd_netlink.h)
+		AC_CHECK_DECLS([NFSD_A_SERVER_MIN_THREADS], , ,
+			       [#include <linux/nfsd_netlink.h>])
 
 		# ensure we have the pool-mode commands
 		AC_COMPILE_IFELSE([AC_LANG_PROGRAM([[#include <linux/nfsd_netlink.h>]],
@@ -619,7 +621,6 @@ AC_CHECK_SIZEOF(socklen_t,, [AC_INCLUDES_DEFAULT
                              #ifdef HAVE_SYS_SOCKET_H
                              # include <sys/socket.h>
                              #endif])
-
 
 dnl *************************************************************
 dnl Export some path names to config.h

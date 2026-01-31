@@ -19,6 +19,7 @@
 #include <string.h>
 #include <sched.h>
 #include <sys/queue.h>
+#include <limits.h>
 
 #include <netlink/genl/family.h>
 #include <netlink/genl/ctrl.h>
@@ -323,6 +324,11 @@ static void parse_threads_get(struct genlmsghdr *gnlh)
 		case NFSD_A_SERVER_THREADS:
 			pool_threads[i++] = nla_get_u32(attr);
 			break;
+#if HAVE_DECL_NFSD_A_SERVER_MIN_THREADS
+		case NFSD_A_SERVER_MIN_THREADS:
+			printf("min-threads: %u\n", nla_get_u32(attr));
+			break;
+#endif
 		default:
 			break;
 		}
@@ -518,7 +524,7 @@ out:
 }
 
 static int threads_doit(struct nl_sock *sock, int cmd, int grace, int lease,
-			int pool_count, int *pool_threads, char *scope)
+			int pool_count, int *pool_threads, char *scope, int minthreads)
 {
 	struct genlmsghdr *ghdr;
 	struct nlmsghdr *nlh;
@@ -540,6 +546,10 @@ static int threads_doit(struct nl_sock *sock, int cmd, int grace, int lease,
 			nla_put_u32(msg, NFSD_A_SERVER_LEASETIME, lease);
 		if (scope)
 			nla_put_string(msg, NFSD_A_SERVER_SCOPE, scope);
+#if HAVE_DECL_NFSD_A_SERVER_MIN_THREADS
+		if (minthreads >= 0)
+			nla_put_u32(msg, NFSD_A_SERVER_MIN_THREADS, minthreads);
+#endif
 		for (i = 0; i < pool_count; ++i)
 			nla_put_u32(msg, NFSD_A_SERVER_THREADS, pool_threads[i]);
 	}
@@ -580,23 +590,49 @@ out:
 
 static void threads_usage(void)
 {
-	printf("Usage: %s threads [ pool0_count ] [ pool1_count ] ...\n", taskname);
+	printf("Usage: %s threads { --min-threads=X } [ pool0_count ] [ pool1_count ] ...\n", taskname);
+#if HAVE_DECL_NFSD_A_SERVER_MIN_THREADS
+	printf("    --min-threads= set the minimum thread count per pool to value\n");
+#endif
 	printf("    pool0_count: thread count for pool0, etc...\n");
 	printf("Omit any arguments to show current thread counts.\n");
 }
+
+#if HAVE_DECL_NFSD_A_SERVER_MIN_THREADS
+static const struct option threads_options[] = {
+	{ "help", no_argument, NULL, 'h' },
+	{ "min-threads", required_argument, NULL, 'm' },
+	{ },
+};
+#define THREADS_OPTSTRING "hm:"
+#else
+#define threads_options help_only_options
+#define THREADS_OPTSTRING "h"
+#endif
 
 static int threads_func(struct nl_sock *sock, int argc, char **argv)
 {
 	uint8_t cmd = NFSD_CMD_THREADS_GET;
 	int *pool_threads = NULL;
+	int minthreads = -1;
 	int opt, pools = 0;
 
 	optind = 1;
-	while ((opt = getopt_long(argc, argv, "h", help_only_options, NULL)) != -1) {
+	while ((opt = getopt_long(argc, argv, THREADS_OPTSTRING, threads_options, NULL)) != -1) {
 		switch (opt) {
 		case 'h':
 			threads_usage();
 			return 0;
+#if HAVE_DECL_NFSD_A_SERVER_MIN_THREADS
+		case 'm':
+			errno = 0;
+			minthreads = strtoul(optarg, NULL, 0);
+			if (minthreads == ULONG_MAX && errno != 0) {
+				fprintf(stderr, "Bad --min-threads value.");
+				return 1;
+			}
+			break;
+#endif
 		}
 	}
 
@@ -624,7 +660,7 @@ static int threads_func(struct nl_sock *sock, int argc, char **argv)
 			}
 		}
 	}
-	return threads_doit(sock, cmd, 0, 0, pools, pool_threads, NULL);
+	return threads_doit(sock, cmd, 0, 0, pools, pool_threads, NULL, minthreads);
 }
 
 /*
@@ -1595,7 +1631,7 @@ static void autostart_usage(void)
 
 static int autostart_func(struct nl_sock *sock, int argc, char ** argv)
 {
-	int *threads, grace, lease, idx, ret, opt, pools;
+	int *threads, grace, lease, idx, ret, opt, pools, minthreads;
 	struct conf_list *thread_str;
 	struct conf_list_node *n;
 	char *scope, *pool_mode;
@@ -1676,9 +1712,10 @@ static int autostart_func(struct nl_sock *sock, int argc, char ** argv)
 
 	lease = conf_get_num("nfsd", "lease-time", 0);
 	scope = conf_get_str("nfsd", "scope");
+	minthreads = conf_get_num("nfsd", "min-threads", 0);
 
 	ret = threads_doit(sock, NFSD_CMD_THREADS_SET, grace, lease, pools,
-			   threads, scope);
+			   threads, scope, minthreads);
 out:
 	free(threads);
 	return ret;
