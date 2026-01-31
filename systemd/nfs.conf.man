@@ -302,7 +302,7 @@ Recognized values:
 
 See
 .BR nfsrahead (5)
-for deatils.
+for details.
 
 .SH FILES
 .I /usr/etc/nfs.conf
