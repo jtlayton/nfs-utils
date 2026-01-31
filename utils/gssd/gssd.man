@@ -190,7 +190,7 @@ name exactly as requested.  e.g. for NFS
 it is the server name in the "servername:/path" mount request.  Only if this
 servername appears to be an IP address (IPv4 or IPv6) or an
 unqualified name (no dots) will a reverse DNS lookup
-will be performed to get the canoncial server name.
+will be performed to get the canonical server name.
 
 If
 .B \-D
@@ -244,7 +244,7 @@ This option specifies a colon separated list of directories that
 .B rpc.gssd
 searches for credential files.  The default value is
 .IR /tmp:/run/user/%U .
-The literal sequence "%U" can be specified to substitue the UID
+The literal sequence "%U" can be specified to substitute the UID
 of the user for whom credentials are being searched.
 .TP
 .B -M
@@ -404,7 +404,7 @@ Note that this is unrelated to the functionality that
 provides on behalf of the NFS server.  For more information, see
 .BR https://github.com/gssapi/gssproxy/blob/main/docs/NFS.md#nfs-client .
 .P
-In addtion, the following value is recognized from the
+In addition, the following value is recognized from the
 .B [general]
 section:
 .TP
