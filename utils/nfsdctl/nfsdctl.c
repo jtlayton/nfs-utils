@@ -1514,14 +1514,14 @@ static int lockd_config_doit(struct nl_sock *sock, int cmd, int grace, int tcppo
 
 	cb = nl_cb_alloc(NL_CB_CUSTOM);
 	if (!cb) {
-		xlog(L_ERROR, "failed to allocate netlink callbacks\n");
+		xlog(L_ERROR, "failed to allocate netlink callbacks");
 		ret = 1;
 		goto out;
 	}
 
 	ret = nl_send_auto(sock, msg);
 	if (ret < 0) {
-		xlog(L_ERROR, "send failed (%d)!\n", ret);
+		xlog(L_ERROR, "send failed (%d)!", ret);
 		goto out_cb;
 	}
 
@@ -1534,7 +1534,7 @@ static int lockd_config_doit(struct nl_sock *sock, int cmd, int grace, int tcppo
 	while (ret > 0)
 		nl_recvmsgs(sock, cb);
 	if (ret < 0) {
-		xlog(L_ERROR, "Error: %s\n", strerror(-ret));
+		xlog(L_ERROR, "Error: %s", strerror(-ret));
 		ret = 1;
 	}
 out_cb:
@@ -1554,7 +1554,7 @@ static int get_service(const char *svc)
 
 	ret = getaddrinfo(NULL, svc, &hints, &res);
 	if (ret) {
-		xlog(L_ERROR, "getaddrinfo of \"%s\" failed: %s\n",
+		xlog(L_ERROR, "getaddrinfo of \"%s\" failed: %s",
 			svc, gai_strerror(ret));
 		return -1;
 	}
@@ -1575,7 +1575,7 @@ static int get_service(const char *svc)
 		}
 		break;
 	default:
-		xlog(L_ERROR, "Bad address family: %d\n", res->ai_family);
+		xlog(L_ERROR, "Bad address family: %d", res->ai_family);
 		port = -1;
 	}
 	freeaddrinfo(res);
