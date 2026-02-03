@@ -52,6 +52,9 @@ static int lockd_nl_family;
 /* The index of the "nfsd" netlink family */
 static int nfsd_nl_family;
 
+/* The highest attribute index supported by NFSD_CMD_THREADS_SET on this kernel */
+int nfsd_threads_max_nlattr;
+
 struct nfs_version {
 	uint8_t	major;
 	uint8_t	minor;
@@ -480,6 +483,83 @@ static int nfsd_nl_family_setup(struct nl_sock *sock)
 	return nfsd_nl_family;
 }
 
+static int getpolicy_handler(struct nl_msg *msg, void *arg)
+{
+	struct genlmsghdr *gnlh = nlmsg_data(nlmsg_hdr(msg));
+	struct nlattr *attr;
+	int rem;
+
+	nla_for_each_attr(attr, genlmsg_attrdata(gnlh, 0), genlmsg_attrlen(gnlh, 0), rem) {
+		struct nlattr *a, *b;
+		int i, j, index;
+
+		if (nla_type(attr) == CTRL_ATTR_POLICY) {
+			nla_for_each_nested(a, attr, i) {
+				nla_for_each_nested(b, a, j) {
+					int idx = nla_type(b);
+
+					if (nfsd_threads_max_nlattr < idx)
+						nfsd_threads_max_nlattr = idx;
+				}
+			}
+		}
+	}
+	return NL_SKIP;
+}
+
+static int query_nfsd_nl_policy(struct nl_sock *sock)
+{
+	struct genlmsghdr *ghdr;
+	struct nlmsghdr *nlh;
+	struct nl_msg *msg;
+	struct nl_cb *cb;
+	int opt, ret, id;
+
+	if (!nfsd_nl_family_setup(sock))
+		return 1;
+
+	msg = netlink_msg_alloc(sock, GENL_ID_CTRL);
+	if (!msg)
+		return 1;
+
+	nlh = nlmsg_hdr(msg);
+	nlh->nlmsg_flags |= NLM_F_DUMP;
+	ghdr = nlmsg_data(nlh);
+	ghdr->cmd = CTRL_CMD_GETPOLICY;
+
+	cb = nl_cb_alloc(NL_CB_CUSTOM);
+	if (!cb) {
+		xlog(L_ERROR, "failed to allocate netlink callbacks");
+		ret = 1;
+		goto out;
+	}
+
+	nla_put_u16(msg, CTRL_ATTR_FAMILY_ID, nfsd_nl_family);
+	nla_put_u32(msg, CTRL_ATTR_OP, NFSD_CMD_THREADS_SET);
+
+	ret = nl_send_auto(sock, msg);
+	if (ret < 0)
+		goto out_cb;
+
+	ret = 1;
+	nl_cb_err(cb, NL_CB_CUSTOM, error_handler, &ret);
+	nl_cb_set(cb, NL_CB_FINISH, NL_CB_CUSTOM, finish_handler, &ret);
+	nl_cb_set(cb, NL_CB_ACK, NL_CB_CUSTOM, ack_handler, &ret);
+	nl_cb_set(cb, NL_CB_VALID, NL_CB_CUSTOM, getpolicy_handler, NULL);
+
+	while (ret > 0)
+		nl_recvmsgs(sock, cb);
+	if (ret < 0) {
+		xlog(L_ERROR, "Error: %s", strerror(-ret));
+		ret = 1;
+	}
+out_cb:
+	nl_cb_put(cb);
+out:
+	nlmsg_free(msg);
+	return ret;
+}
+
 static void status_usage(void)
 {
 	printf("Usage: %s status\n", taskname);
@@ -639,6 +719,11 @@ static int threads_func(struct nl_sock *sock, int argc, char **argv)
 			threads_usage();
 			return 0;
 		case 'm':
+			if (nfsd_threads_max_nlattr < NFSD_A_SERVER_MIN_THREADS) {
+				xlog(L_ERROR, "This kernel does not support dynamic threading.");
+				return 1;
+			}
+
 			errno = 0;
 			minthreads = strtoul(optarg, NULL, 0);
 			if (minthreads == ULONG_MAX && errno != 0) {
@@ -1743,7 +1828,12 @@ static int autostart_func(struct nl_sock *sock, int argc, char ** argv)
 
 	lease = conf_get_num("nfsd", "lease-time", 0);
 	scope = conf_get_str("nfsd", "scope");
-	minthreads = conf_get_num("nfsd", "min-threads", 0);
+	minthreads = conf_get_num("nfsd", "min-threads", -1);
+
+	if (minthreads >= 0 && nfsd_threads_max_nlattr < NFSD_A_SERVER_MIN_THREADS) {
+		xlog(L_WARNING, "This kernel does not support dynamic threading. min-threads setting ignored.");
+		minthreads = -1;
+	}
 
 	ret = threads_doit(sock, NFSD_CMD_THREADS_SET, grace, lease, pools,
 			   threads, scope, minthreads);
@@ -1935,6 +2025,9 @@ int main(int argc, char **argv)
 		xlog(L_ERROR, "Unable to allocate netlink socket!");
 		return 1;
 	}
+
+	if (query_nfsd_nl_policy(sock))
+		return 1;
 
 	if (optind > argc) {
 		usage();
