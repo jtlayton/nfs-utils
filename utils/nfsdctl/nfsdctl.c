@@ -324,11 +324,9 @@ static void parse_threads_get(struct genlmsghdr *gnlh)
 		case NFSD_A_SERVER_THREADS:
 			pool_threads[i++] = nla_get_u32(attr);
 			break;
-#if HAVE_DECL_NFSD_A_SERVER_MIN_THREADS
 		case NFSD_A_SERVER_MIN_THREADS:
 			printf("min-threads: %u\n", nla_get_u32(attr));
 			break;
-#endif
 		default:
 			break;
 		}
@@ -546,10 +544,8 @@ static int threads_doit(struct nl_sock *sock, int cmd, int grace, int lease,
 			nla_put_u32(msg, NFSD_A_SERVER_LEASETIME, lease);
 		if (scope)
 			nla_put_string(msg, NFSD_A_SERVER_SCOPE, scope);
-#if HAVE_DECL_NFSD_A_SERVER_MIN_THREADS
 		if (minthreads >= 0)
 			nla_put_u32(msg, NFSD_A_SERVER_MIN_THREADS, minthreads);
-#endif
 		for (i = 0; i < pool_count; ++i)
 			nla_put_u32(msg, NFSD_A_SERVER_THREADS, pool_threads[i]);
 	}
@@ -591,24 +587,16 @@ out:
 static void threads_usage(void)
 {
 	printf("Usage: %s threads { --min-threads=X } [ pool0_count ] [ pool1_count ] ...\n", taskname);
-#if HAVE_DECL_NFSD_A_SERVER_MIN_THREADS
 	printf("    --min-threads= set the minimum thread count per pool to value\n");
-#endif
 	printf("    pool0_count: thread count for pool0, etc...\n");
 	printf("Omit any arguments to show current thread counts.\n");
 }
 
-#if HAVE_DECL_NFSD_A_SERVER_MIN_THREADS
 static const struct option threads_options[] = {
 	{ "help", no_argument, NULL, 'h' },
 	{ "min-threads", required_argument, NULL, 'm' },
 	{ },
 };
-#define THREADS_OPTSTRING "hm:"
-#else
-#define threads_options help_only_options
-#define THREADS_OPTSTRING "h"
-#endif
 
 static int threads_func(struct nl_sock *sock, int argc, char **argv)
 {
@@ -618,12 +606,11 @@ static int threads_func(struct nl_sock *sock, int argc, char **argv)
 	int opt, pools = 0;
 
 	optind = 1;
-	while ((opt = getopt_long(argc, argv, THREADS_OPTSTRING, threads_options, NULL)) != -1) {
+	while ((opt = getopt_long(argc, argv, "hm:", threads_options, NULL)) != -1) {
 		switch (opt) {
 		case 'h':
 			threads_usage();
 			return 0;
-#if HAVE_DECL_NFSD_A_SERVER_MIN_THREADS
 		case 'm':
 			errno = 0;
 			minthreads = strtoul(optarg, NULL, 0);
@@ -632,7 +619,6 @@ static int threads_func(struct nl_sock *sock, int argc, char **argv)
 				return 1;
 			}
 			break;
-#endif
 		}
 	}
 
