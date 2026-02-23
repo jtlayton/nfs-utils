@@ -458,12 +458,12 @@ static struct nl_msg *netlink_msg_alloc(struct nl_sock *sock, int family)
 	return msg;
 }
 
-static int resolve_family(struct nl_sock *sock, const char *name)
+static int resolve_family(struct nl_sock *sock, const char *name, int loglevel)
 {
 	int family = genl_ctrl_resolve(sock, name);
 
 	if (family < 0) {
-		xlog(L_ERROR, "failed to resolve %s generic netlink family: %d", name, family);
+		xlog(loglevel, "failed to resolve %s generic netlink family: %d", name, family);
 		family = 0;
 	}
 	return family;
@@ -471,15 +471,25 @@ static int resolve_family(struct nl_sock *sock, const char *name)
 
 static int lockd_nl_family_setup(struct nl_sock *sock)
 {
-	if (!lockd_nl_family)
-		lockd_nl_family = resolve_family(sock, LOCKD_FAMILY_NAME);
+	if (!lockd_nl_family) {
+		lockd_nl_family = resolve_family(sock, LOCKD_FAMILY_NAME, L_WARNING);
+		if (lockd_nl_family) {
+			system("modprobe lockd");
+			lockd_nl_family = resolve_family(sock, LOCKD_FAMILY_NAME, L_ERROR);
+		}
+	}
 	return lockd_nl_family;
 }
 
 static int nfsd_nl_family_setup(struct nl_sock *sock)
 {
-	if (!nfsd_nl_family)
-		nfsd_nl_family = resolve_family(sock, NFSD_FAMILY_NAME);
+	if (!nfsd_nl_family) {
+		nfsd_nl_family = resolve_family(sock, NFSD_FAMILY_NAME, L_WARNING);
+		if (!nfsd_nl_family) {
+			system("modprobe nfsd");
+			nfsd_nl_family = resolve_family(sock, NFSD_FAMILY_NAME, L_ERROR);
+		}
+	}
 	return nfsd_nl_family;
 }
 
