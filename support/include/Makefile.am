@@ -15,6 +15,7 @@ noinst_HEADERS = \
 	nfs_ucred.h \
 	nfsd_netlink.h \
 	nfsd_path.h \
+	sunrpc_netlink.h \
 	nfslib.h \
 	nfsrpc.h \
 	nls.h \
