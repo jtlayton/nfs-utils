@@ -18,7 +18,7 @@ exportd_LDADD = ../../support/export/libexport.a \
 			../../support/misc/libmisc.a \
 			../../support/reexport/libreexport.a \
 			$(OPTLIBS) $(LIBBLKID) $(LIBPTHREAD) \
-			-luuid
+			-luuid $(LIBNL3_LIBS) $(LIBNLGENL3_LIBS)
 
 exportd_CPPFLAGS = $(AM_CPPFLAGS) $(CPPFLAGS) \
 		-I$(top_srcdir)/support/export

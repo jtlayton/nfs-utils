@@ -20,7 +20,7 @@ mountd_LDADD = ../../support/export/libexport.a \
 	       ../../support/reexport/libreexport.a \
 	       $(OPTLIBS) \
 	       $(LIBBSD) $(LIBWRAP) $(LIBNSL) $(LIBBLKID) -luuid $(LIBTIRPC) \
-	       $(LIBPTHREAD)
+	       $(LIBPTHREAD) $(LIBNL3_LIBS) $(LIBNLGENL3_LIBS)
 
 mountd_CPPFLAGS = $(AM_CPPFLAGS) $(CPPFLAGS) \
 		  -I$(top_builddir)/support/include \

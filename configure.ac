@@ -252,26 +252,28 @@ AC_ARG_ENABLE(nfsdcltrack,
 	enable_nfsdcltrack=$enableval,
 	enable_nfsdcltrack="no")
 
+PKG_CHECK_MODULES(LIBNL3, libnl-3.0 >= 3.1)
+PKG_CHECK_MODULES(LIBNLGENL3, libnl-genl-3.0 >= 3.1)
+
+AC_CHECK_HEADERS(linux/nfsd_netlink.h)
+
+# ensure we have the MIN_THREADS attribute
+AC_COMPILE_IFELSE([AC_LANG_PROGRAM([[#include <linux/nfsd_netlink.h>]],
+			                   [[int foo = NFSD_A_SERVER_MIN_THREADS;]])],
+			   [AC_DEFINE([USE_SYSTEM_NFSD_NETLINK_H], 1,
+				      ["Use system's linux/nfsd_netlink.h"])])
+AC_COMPILE_IFELSE([AC_LANG_PROGRAM([[#include <linux/lockd_netlink.h>]],
+			                   [[int foo = LOCKD_CMD_SERVER_GET;]])],
+			   [AC_DEFINE([USE_SYSTEM_LOCKD_NETLINK_H], 1,
+				      ["Use system's linux/lockd_netlink.h"])])
+
 AC_ARG_ENABLE(nfsdctl,
 	[AS_HELP_STRING([--disable-nfsdctl],[disable nfsdctl program for controlling nfsd@<:@default=no@:>@])],
 	enable_nfsdctl=$enableval,
 	enable_nfsdctl="yes")
 	AM_CONDITIONAL(CONFIG_NFSDCTL, [test "$enable_nfsdctl" = "yes" ])
 	if test "$enable_nfsdctl" = yes; then
-		PKG_CHECK_MODULES(LIBNL3, libnl-3.0 >= 3.1)
-		PKG_CHECK_MODULES(LIBNLGENL3, libnl-genl-3.0 >= 3.1)
 		PKG_CHECK_MODULES(LIBREADLINE, readline)
-		AC_CHECK_HEADERS(linux/nfsd_netlink.h)
-
-		# ensure we have the MIN_THREADS attribute
-		AC_COMPILE_IFELSE([AC_LANG_PROGRAM([[#include <linux/nfsd_netlink.h>]],
-				                   [[int foo = NFSD_A_SERVER_MIN_THREADS;]])],
-				   [AC_DEFINE([USE_SYSTEM_NFSD_NETLINK_H], 1,
-					      ["Use system's linux/nfsd_netlink.h"])])
-		AC_COMPILE_IFELSE([AC_LANG_PROGRAM([[#include <linux/lockd_netlink.h>]],
-				                   [[int foo = LOCKD_CMD_SERVER_GET;]])],
-				   [AC_DEFINE([USE_SYSTEM_LOCKD_NETLINK_H], 1,
-					      ["Use system's linux/lockd_netlink.h"])])
 	fi
 
 AC_ARG_ENABLE(nfsv4server,
