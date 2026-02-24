@@ -41,6 +41,7 @@ static struct nfs_fh_len *get_rootfh(struct svc_req *, dirpath *, nfs_export **,
 int reverse_resolve = 0;
 int manage_gids;
 int use_ipaddr = -1;
+int no_proc_fh;
 
 /* PRC: a high-availability callout program can be specified with -H
  * When this is done, the program will receive callouts whenever clients
@@ -74,9 +75,10 @@ static struct option longopts[] =
 	{ "log-auth", 0, 0, 'l'},
 	{ "cache-use-ipaddr", 0, 0, 'i'},
 	{ "ttl", 1, 0, 'T'},
+	{ "no-proc-fh", 0, 0, 'G'},
 	{ NULL, 0, 0, 0 }
 };
-static char shortopts[] = "o:nFd:p:P:hH:N:V:vurs:t:gliT:";
+static char shortopts[] = "o:nFd:p:P:hH:N:V:vurs:t:gliT:G";
 
 #define NFSVERSBIT(vers)	(0x1 << (vers - 1))
 #define NFSVERSBIT_ALL		(NFSVERSBIT(2) | NFSVERSBIT(3) | NFSVERSBIT(4))
@@ -749,6 +751,9 @@ main(int argc, char **argv)
 			}
 			default_ttl = ttl;
 			break;
+		case 'G':
+			no_proc_fh = 1;
+			break;
 		case 0:
 			break;
 		case '?':
@@ -882,6 +887,7 @@ usage(const char *prog, int n)
 "	[-N version|--no-nfs-version version] [-n|--no-tcp]\n"
 "	[-H prog |--ha-callout prog] [-r |--reverse-lookup]\n"
 "	[-s|--state-directory-path path] [-g|--manage-gids]\n"
-"	[-t num|--num-threads=num] [-u|--no-udp]\n", prog);
+"	[-t num|--num-threads=num] [-u|--no-udp]\n"
+"	[-G|--no-proc-fh]\n", prog);
 	exit(n);
 }

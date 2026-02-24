@@ -2113,6 +2113,7 @@ struct {
 };
 
 extern int manage_gids;
+extern int no_proc_fh;
 
 /**
  * cache_open - prepare communications channels with kernel RPC caches
@@ -2125,6 +2126,8 @@ void cache_open(void)
 	for (i=0; cachelist[i].cache_name; i++ ) {
 		char path[100];
 		if (!manage_gids && cachelist[i].cache_handle == auth_unix_gid)
+			continue;
+		if (no_proc_fh && cachelist[i].cache_handle == nfsd_fh)
 			continue;
 		sprintf(path, "/proc/net/rpc/%s/channel", cachelist[i].cache_name);
 		cachelist[i].f = open(path, O_RDWR);

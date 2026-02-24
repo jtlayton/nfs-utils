@@ -33,6 +33,7 @@ static int num_threads = 1;
 
 int manage_gids;
 int use_ipaddr = -1;
+int no_proc_fh;
 
 static struct option longopts[] =
 {
@@ -44,9 +45,10 @@ static struct option longopts[] =
 	{ "log-auth", 0, 0, 'l' },
 	{ "cache-use-ipaddr", 0, 0, 'i' },
 	{ "ttl", 0, 0, 'T' },
+	{ "no-proc-fh", 0, 0, 'G' },
 	{ NULL, 0, 0, 0 }
 };
-static char shortopts[] = "d:fghs:t:liT:";
+static char shortopts[] = "d:fghs:t:liT:G";
 
 /*
  * Signal handlers.
@@ -109,7 +111,7 @@ usage(const char *prog, int n)
 		"Usage: %s [-f|--foreground] [-h|--help] [-d kind|--debug kind]\n"
 "	[-g|--manage-gids] [-l|--log-auth] [-i|--cache-use-ipaddr] [-T|--ttl ttl]\n"
 "	[-s|--state-directory-path path]\n"
-"	[-t num|--num-threads=num]\n", prog);
+"	[-t num|--num-threads=num] [-G|--no-proc-fh]\n", prog);
 	exit(n);
 }
 
@@ -192,6 +194,9 @@ main(int argc, char **argv)
 			break;
 		case 't':
 			num_threads = atoi (optarg);
+			break;
+		case 'G':
+			no_proc_fh = 1;
 			break;
 		case '?':
 		default:
