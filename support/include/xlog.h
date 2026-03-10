@@ -25,7 +25,7 @@
 #define D_GENERAL	0x0001		/* general debug info */
 #define D_CALL		0x0002
 #define D_AUTH		0x0004
-#define D_FAC3		0x0008
+#define D_NETLINK	0x0008
 #define D_FAC4		0x0010
 #define D_FAC5		0x0020
 #define D_PARSE		0x0040
