@@ -110,6 +110,7 @@ static bool path_lookup_error(int err)
 #define INITIAL_MANAGED_GROUPS 100
 
 extern int use_ipaddr;
+extern int manage_gids;
 
 static void auth_unix_ip(int f)
 {
@@ -2202,6 +2203,237 @@ out_free:
 	free(reqs);
 }
 
+/*
+ * unix_gid (auth.unix.gid) netlink handler
+ */
+struct unix_gid_req {
+	uid_t	uid;
+};
+
+struct get_unix_gid_reqs_data {
+	struct unix_gid_req	*reqs;
+	int			nreqs;
+	int			maxreqs;
+	int			err;
+};
+
+static int get_unix_gid_reqs_cb(struct nl_msg *msg, void *arg)
+{
+	struct get_unix_gid_reqs_data *data = arg;
+	struct genlmsghdr *gnlh = nlmsg_data(nlmsg_hdr(msg));
+	struct nlattr *attr;
+	int rem;
+
+	nla_for_each_attr(attr, genlmsg_attrdata(gnlh, 0),
+			  genlmsg_attrlen(gnlh, 0), rem) {
+		struct nlattr *tb[SUNRPC_A_UNIX_GID_EXPIRY + 1];
+		struct unix_gid_req *req;
+
+		if (nla_type(attr) != SUNRPC_A_UNIX_GID_REQS_REQUESTS)
+			continue;
+
+		if (nla_parse_nested(tb, SUNRPC_A_UNIX_GID_EXPIRY, attr,
+				     NULL))
+			continue;
+
+		if (!tb[SUNRPC_A_UNIX_GID_UID])
+			continue;
+
+		if (data->nreqs >= data->maxreqs) {
+			int newmax = data->maxreqs ? data->maxreqs * 2 : 16;
+			struct unix_gid_req *tmp;
+
+			tmp = realloc(data->reqs, newmax * sizeof(*tmp));
+			if (!tmp) {
+				data->err = -ENOMEM;
+				return NL_STOP;
+			}
+			data->reqs = tmp;
+			data->maxreqs = newmax;
+		}
+
+		req = &data->reqs[data->nreqs++];
+		req->uid = nla_get_u32(tb[SUNRPC_A_UNIX_GID_UID]);
+	}
+
+	return NL_OK;
+}
+
+static int cache_nl_get_unix_gid_reqs(struct unix_gid_req **reqs_out,
+				      int *nreqs_out)
+{
+	struct get_unix_gid_reqs_data data = { };
+	struct nl_msg *msg;
+	struct nl_cb *cb;
+	int done = 0;
+	int ret;
+
+	msg = cache_nl_new_msg(sunrpc_nl_family,
+			       SUNRPC_CMD_UNIX_GID_GET_REQS, NLM_F_DUMP);
+	if (!msg)
+		return -ENOMEM;
+
+	cb = nl_cb_alloc(NL_CB_DEFAULT);
+	if (!cb) {
+		nlmsg_free(msg);
+		return -ENOMEM;
+	}
+
+	nl_cb_set(cb, NL_CB_VALID, NL_CB_CUSTOM, get_unix_gid_reqs_cb,
+		  &data);
+	nl_cb_set(cb, NL_CB_FINISH, NL_CB_CUSTOM, nl_finish_cb, &done);
+	nl_cb_err(cb, NL_CB_CUSTOM, nl_error_cb, &done);
+
+	ret = nl_send_auto(sunrpc_nl_cmd_sock, msg);
+	nlmsg_free(msg);
+	if (ret < 0) {
+		nl_cb_put(cb);
+		return ret;
+	}
+
+	while (!done) {
+		ret = nl_recvmsgs(sunrpc_nl_cmd_sock, cb);
+		if (ret < 0)
+			break;
+	}
+
+	nl_cb_put(cb);
+
+	if (data.err) {
+		free(data.reqs);
+		return data.err;
+	}
+
+	*reqs_out = data.reqs;
+	*nreqs_out = data.nreqs;
+	return 0;
+}
+
+static int nl_add_unix_gid(struct nl_msg *msg, uid_t uid, gid_t *groups,
+			   int ngroups)
+{
+	struct nlattr *nest;
+	time_t now = time(0);
+	int i;
+
+	nest = nla_nest_start(msg, SUNRPC_A_UNIX_GID_REQS_REQUESTS);
+	if (!nest)
+		return -1;
+
+	if (nla_put_u32(msg, SUNRPC_A_UNIX_GID_UID, uid) < 0 ||
+	    nla_put_u64(msg, SUNRPC_A_UNIX_GID_EXPIRY, now + default_ttl) < 0)
+		goto nla_failure;
+
+	if (ngroups >= 0) {
+		for (i = 0; i < ngroups; i++)
+			if (nla_put_u32(msg, SUNRPC_A_UNIX_GID_GIDS, groups[i]) < 0)
+				goto nla_failure;
+	} else {
+		if (nla_put_flag(msg, SUNRPC_A_UNIX_GID_NEGATIVE) < 0)
+			goto nla_failure;
+	}
+
+	nla_nest_end(msg, nest);
+	return 0;
+nla_failure:
+	nla_nest_cancel(msg, nest);
+	return -1;
+}
+
+static void cache_nl_process_unix_gid(void)
+{
+	struct unix_gid_req *reqs = NULL;
+	int nreqs = 0;
+	struct nl_msg *msg;
+	static gid_t *groups = NULL;
+	static int groups_len = 0;
+	int i;
+
+	if (cache_nl_get_unix_gid_reqs(&reqs, &nreqs)) {
+		xlog(L_WARNING, "cache_nl_process_unix_gid: failed to get unix_gid requests");
+		return;
+	}
+
+	if (!nreqs)
+		return;
+
+	xlog(D_CALL, "cache_nl_process_unix_gid: %d pending unix_gid requests",
+	     nreqs);
+
+	if (groups_len == 0) {
+		groups = malloc(sizeof(gid_t) * INITIAL_MANAGED_GROUPS);
+		if (!groups)
+			goto out_free;
+		groups_len = INITIAL_MANAGED_GROUPS;
+	}
+
+	msg = cache_nl_new_msg(sunrpc_nl_family,
+			       SUNRPC_CMD_UNIX_GID_SET_REQS, 0);
+	if (!msg)
+		goto out_free;
+
+	for (i = 0; i < nreqs; i++) {
+		uid_t uid = reqs[i].uid;
+		struct passwd *pw;
+		int ngroups;
+		int rv;
+		int ret;
+
+		ngroups = groups_len;
+		pw = getpwuid(uid);
+		if (!pw) {
+			rv = -1;
+		} else {
+			rv = getgrouplist(pw->pw_name, pw->pw_gid,
+					  groups, &ngroups);
+			if (rv == -1 && ngroups >= groups_len) {
+				gid_t *more_groups;
+
+				more_groups = realloc(groups,
+						      sizeof(gid_t) * ngroups);
+				if (!more_groups) {
+					rv = -1;
+				} else {
+					groups = more_groups;
+					groups_len = ngroups;
+					rv = getgrouplist(pw->pw_name,
+							  pw->pw_gid,
+							  groups, &ngroups);
+				}
+			}
+		}
+
+		if (rv >= 0)
+			ret = nl_add_unix_gid(msg, uid, groups, ngroups);
+		else
+			ret = nl_add_unix_gid(msg, uid, NULL, -1);
+
+		if (ret < 0) {
+			/* Flush current message and retry with a fresh one */
+			cache_nl_set_reqs(sunrpc_nl_cmd_sock, msg);
+			nlmsg_free(msg);
+			msg = cache_nl_new_msg(sunrpc_nl_family,
+					       SUNRPC_CMD_UNIX_GID_SET_REQS, 0);
+			if (!msg)
+				goto out_free;
+
+			if (rv >= 0)
+				ret = nl_add_unix_gid(msg, uid, groups, ngroups);
+			else
+				ret = nl_add_unix_gid(msg, uid, NULL, -1);
+			if (ret < 0)
+				xlog(L_WARNING, "%s: skipping oversized entry for uid %u",
+				     __func__, uid);
+		}
+	}
+
+	cache_nl_set_reqs(sunrpc_nl_cmd_sock, msg);
+	nlmsg_free(msg);
+
+out_free:
+	free(reqs);
+}
+
 static void cache_sunrpc_nl_process(void)
 {
 	/* Drain pending sunrpc notifications */
@@ -2211,6 +2443,10 @@ static void cache_sunrpc_nl_process(void)
 
 	/* Handle any pending ip_map requests */
 	cache_nl_process_ip_map();
+
+	/* Handle any pending unix_gid requests */
+	if (manage_gids)
+		cache_nl_process_unix_gid();
 }
 
 static int can_reexport_via_fsidnum(struct exportent *exp, struct statfs *st)
