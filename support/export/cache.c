@@ -1180,22 +1180,45 @@ static int cache_nfsd_nl_open(void)
 			       &nfsd_nl_family);
 }
 
-static int nfsd_nl_notify_handler(struct nl_msg *UNUSED(msg), void *UNUSED(arg))
+static int nl_seq_check_handler(struct nl_msg *UNUSED(msg), void *UNUSED(arg))
 {
 	return NL_OK;
 }
 
-static void cache_nfsd_nl_drain(void)
+static int nfsd_notify_handler(struct nl_msg *msg, void *arg)
 {
+	unsigned int *cache_mask = arg;
+	struct genlmsghdr *gnlh = nlmsg_data(nlmsg_hdr(msg));
+	struct nlattr *tb[NFSD_A_CACHE_NOTIFY_MAX + 1];
+
+	if (nla_parse(tb, NFSD_A_CACHE_NOTIFY_MAX,
+		      genlmsg_attrdata(gnlh, 0),
+		      genlmsg_attrlen(gnlh, 0), NULL) == 0 &&
+	    tb[NFSD_A_CACHE_NOTIFY_CACHE_TYPE])
+		*cache_mask |= nla_get_u32(tb[NFSD_A_CACHE_NOTIFY_CACHE_TYPE]);
+	else
+		*cache_mask = ~0U;
+
+	xlog(D_NETLINK, "nfsd_notify_handler: cache_mask=%x", *cache_mask);
+	return NL_OK;
+}
+
+static unsigned int cache_nfsd_nl_drain(void)
+{
+	unsigned int cache_mask = 0;
 	struct nl_cb *cb;
 
 	cb = nl_cb_alloc(NL_CB_DEFAULT);
 	if (!cb)
-		return;
+		return ~0U;
 
-	nl_cb_set(cb, NL_CB_VALID, NL_CB_CUSTOM, nfsd_nl_notify_handler, NULL);
+	nl_cb_set(cb, NL_CB_SEQ_CHECK, NL_CB_CUSTOM,
+		  nl_seq_check_handler, NULL);
+	nl_cb_set(cb, NL_CB_VALID, NL_CB_CUSTOM, nfsd_notify_handler,
+		  &cache_mask);
 	nl_recvmsgs(nfsd_nl_notify_sock, cb);
 	nl_cb_put(cb);
+	return cache_mask;
 }
 
 struct get_export_reqs_data {
@@ -1551,8 +1574,6 @@ static void cache_nl_process_export(void)
 			       NFSD_CMD_SVC_EXPORT_SET_REQS, 0);
 	if (!msg)
 		goto out_free;
-
-	auth_reload();
 
 	for (i = 0; i < nreqs; i++) {
 		char *dom = reqs[i].client;
@@ -1912,16 +1933,20 @@ out_free:
 
 static void cache_nfsd_nl_process(void)
 {
+	unsigned int cache_mask;
+
 	/* Drain pending nfsd notifications */
-	cache_nfsd_nl_drain();
+	cache_mask = cache_nfsd_nl_drain();
 
 	auth_reload();
 
 	/* Handle any pending svc_export requests */
-	cache_nl_process_export();
+	if (cache_mask & NFSD_CACHE_TYPE_SVC_EXPORT)
+		cache_nl_process_export();
 
 	/* Handle any pending expkey requests */
-	cache_nl_process_expkey();
+	if (cache_mask & NFSD_CACHE_TYPE_EXPKEY)
+		cache_nl_process_expkey();
 }
 
 /*
@@ -1942,17 +1967,40 @@ static int cache_sunrpc_nl_open(void)
 			       &sunrpc_nl_family);
 }
 
-static void cache_sunrpc_nl_drain(void)
+static int sunrpc_notify_handler(struct nl_msg *msg, void *arg)
 {
+	unsigned int *cache_mask = arg;
+	struct genlmsghdr *gnlh = nlmsg_data(nlmsg_hdr(msg));
+	struct nlattr *tb[SUNRPC_A_CACHE_NOTIFY_MAX + 1];
+
+	if (nla_parse(tb, SUNRPC_A_CACHE_NOTIFY_MAX,
+		      genlmsg_attrdata(gnlh, 0),
+		      genlmsg_attrlen(gnlh, 0), NULL) == 0 &&
+	    tb[SUNRPC_A_CACHE_NOTIFY_CACHE_TYPE])
+		*cache_mask |= nla_get_u32(tb[SUNRPC_A_CACHE_NOTIFY_CACHE_TYPE]);
+	else
+		*cache_mask = ~0U;
+
+	xlog(D_NETLINK, "sunrpc_notify_handler: cache_mask=%x", *cache_mask);
+	return NL_OK;
+}
+
+static unsigned int cache_sunrpc_nl_drain(void)
+{
+	unsigned int cache_mask = 0;
 	struct nl_cb *cb;
 
 	cb = nl_cb_alloc(NL_CB_DEFAULT);
 	if (!cb)
-		return;
+		return ~0U;
 
-	nl_cb_set(cb, NL_CB_VALID, NL_CB_CUSTOM, nfsd_nl_notify_handler, NULL);
+	nl_cb_set(cb, NL_CB_SEQ_CHECK, NL_CB_CUSTOM,
+		  nl_seq_check_handler, NULL);
+	nl_cb_set(cb, NL_CB_VALID, NL_CB_CUSTOM, sunrpc_notify_handler,
+		  &cache_mask);
 	nl_recvmsgs(sunrpc_nl_notify_sock, cb);
 	nl_cb_put(cb);
+	return cache_mask;
 }
 
 /*
@@ -2436,16 +2484,19 @@ out_free:
 
 static void cache_sunrpc_nl_process(void)
 {
+	unsigned int cache_mask;
+
 	/* Drain pending sunrpc notifications */
-	cache_sunrpc_nl_drain();
+	cache_mask = cache_sunrpc_nl_drain();
 
 	auth_reload();
 
 	/* Handle any pending ip_map requests */
-	cache_nl_process_ip_map();
+	if (cache_mask & SUNRPC_CACHE_TYPE_IP_MAP)
+		cache_nl_process_ip_map();
 
 	/* Handle any pending unix_gid requests */
-	if (manage_gids)
+	if (manage_gids && (cache_mask & SUNRPC_CACHE_TYPE_UNIX_GID))
 		cache_nl_process_unix_gid();
 }
 
