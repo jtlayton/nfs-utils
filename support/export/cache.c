@@ -48,6 +48,12 @@
 #include "nfsd_netlink.h"
 #endif
 
+#ifdef USE_SYSTEM_SUNRPC_NETLINK_H
+#include <linux/sunrpc_netlink.h>
+#else
+#include "sunrpc_netlink.h"
+#endif
+
 #ifdef USE_BLKID
 #include "blkid/blkid.h"
 #endif
@@ -1108,56 +1114,69 @@ static struct nl_sock *nl_sock_setup(void)
 	return sock;
 }
 
-static int cache_nfsd_nl_open(void)
+static int cache_genl_open(const char *family_name, const char *mcgrp_name,
+			   struct nl_sock **cmd_sock,
+			   struct nl_sock **notify_sock, int *family_out)
 {
 	int grp;
 
-	nfsd_nl_family = 0;
+	*family_out = 0;
 
-	nfsd_nl_cmd_sock = nl_sock_setup();
-	if (!nfsd_nl_cmd_sock) {
-		xlog(D_NETLINK, "cache_nfsd_nl_open: failed to allocate command socket");
+	*cmd_sock = nl_sock_setup();
+	if (!*cmd_sock) {
+		xlog(D_NETLINK, "%s: failed to allocate command socket",
+		     family_name);
 		return -ENOMEM;
 	}
 
-	nfsd_nl_family = genl_ctrl_resolve(nfsd_nl_cmd_sock, NFSD_FAMILY_NAME);
-	if (nfsd_nl_family < 0) {
-		xlog(D_NETLINK, "cache_nfsd_nl_open: nfsd netlink family not found");
+	*family_out = genl_ctrl_resolve(*cmd_sock, family_name);
+	if (*family_out < 0) {
+		xlog(D_NETLINK, "%s: netlink family not found", family_name);
 		goto out_free_cmd;
 	}
 
-	grp = genl_ctrl_resolve_grp(nfsd_nl_cmd_sock, NFSD_FAMILY_NAME,
-				    NFSD_MCGRP_EXPORTD);
+	grp = genl_ctrl_resolve_grp(*cmd_sock, family_name, mcgrp_name);
 	if (grp < 0) {
-		xlog(D_NETLINK, "cache_nfsd_nl_open: exportd multicast group not found");
+		xlog(D_NETLINK, "%s: %s multicast group not found",
+		     family_name, mcgrp_name);
 		goto out_free_cmd;
 	}
 
-	nfsd_nl_notify_sock = nl_sock_setup();
-	if (!nfsd_nl_notify_sock) {
-		xlog(D_NETLINK, "cache_nfsd_nl_open: failed to allocate notify socket");
+	*notify_sock = nl_sock_setup();
+	if (!*notify_sock) {
+		xlog(D_NETLINK, "%s: failed to allocate notify socket",
+		     family_name);
 		goto out_free_cmd;
 	}
 
-	nl_socket_disable_seq_check(nfsd_nl_notify_sock);
+	nl_socket_disable_seq_check(*notify_sock);
 
-	if (nl_socket_add_membership(nfsd_nl_notify_sock, grp)) {
-		xlog(L_WARNING, "cache_nfsd_nl_open: failed to join exportd multicast group");
+	if (nl_socket_add_membership(*notify_sock, grp)) {
+		xlog(L_WARNING, "%s: failed to join %s multicast group",
+		     family_name, mcgrp_name);
 		goto out_free_notify;
 	}
 
-	nl_socket_set_nonblocking(nfsd_nl_notify_sock);
-	xlog(D_NETLINK, "cache_nfsd_nl_open: listening for export notifications");
+	nl_socket_set_nonblocking(*notify_sock);
+	xlog(D_NETLINK, "%s: listening for %s notifications",
+	     family_name, mcgrp_name);
 	return 0;
 
 out_free_notify:
-	nl_socket_free(nfsd_nl_notify_sock);
-	nfsd_nl_notify_sock = NULL;
+	nl_socket_free(*notify_sock);
+	*notify_sock = NULL;
 out_free_cmd:
-	nl_socket_free(nfsd_nl_cmd_sock);
-	nfsd_nl_cmd_sock = NULL;
-	nfsd_nl_family = 0;
+	nl_socket_free(*cmd_sock);
+	*cmd_sock = NULL;
+	*family_out = 0;
 	return -ENOENT;
+}
+
+static int cache_nfsd_nl_open(void)
+{
+	return cache_genl_open(NFSD_FAMILY_NAME, NFSD_MCGRP_EXPORTD,
+			       &nfsd_nl_cmd_sock, &nfsd_nl_notify_sock,
+			       &nfsd_nl_family);
 }
 
 static int nfsd_nl_notify_handler(struct nl_msg *UNUSED(msg), void *UNUSED(arg))
@@ -1904,6 +1923,296 @@ static void cache_nfsd_nl_process(void)
 	cache_nl_process_expkey();
 }
 
+/*
+ * Netlink-based sunrpc cache support.
+ *
+ * The sunrpc genl family handles auth.unix.ip and auth.unix.gid caches.
+ * A SUNRPC_CMD_CACHE_NOTIFY on the "exportd" multicast group signals
+ * pending cache requests.
+ */
+static struct nl_sock *sunrpc_nl_notify_sock;
+static struct nl_sock *sunrpc_nl_cmd_sock;
+static int sunrpc_nl_family;
+
+static int cache_sunrpc_nl_open(void)
+{
+	return cache_genl_open(SUNRPC_FAMILY_NAME, SUNRPC_MCGRP_EXPORTD,
+			       &sunrpc_nl_cmd_sock, &sunrpc_nl_notify_sock,
+			       &sunrpc_nl_family);
+}
+
+static void cache_sunrpc_nl_drain(void)
+{
+	struct nl_cb *cb;
+
+	cb = nl_cb_alloc(NL_CB_DEFAULT);
+	if (!cb)
+		return;
+
+	nl_cb_set(cb, NL_CB_VALID, NL_CB_CUSTOM, nfsd_nl_notify_handler, NULL);
+	nl_recvmsgs(sunrpc_nl_notify_sock, cb);
+	nl_cb_put(cb);
+}
+
+/*
+ * ip_map (auth.unix.ip) netlink handler
+ */
+struct ip_map_req {
+	char	*class;
+	char	*addr;
+};
+
+struct get_ip_map_reqs_data {
+	struct ip_map_req	*reqs;
+	int			nreqs;
+	int			maxreqs;
+	int			err;
+};
+
+static int get_ip_map_reqs_cb(struct nl_msg *msg, void *arg)
+{
+	struct get_ip_map_reqs_data *data = arg;
+	struct genlmsghdr *gnlh = nlmsg_data(nlmsg_hdr(msg));
+	struct nlattr *attr;
+	int rem;
+
+	nla_for_each_attr(attr, genlmsg_attrdata(gnlh, 0),
+			  genlmsg_attrlen(gnlh, 0), rem) {
+		struct nlattr *tb[SUNRPC_A_IP_MAP_EXPIRY + 1];
+		struct ip_map_req *req;
+
+		if (nla_type(attr) != SUNRPC_A_IP_MAP_REQS_REQUESTS)
+			continue;
+
+		if (nla_parse_nested(tb, SUNRPC_A_IP_MAP_EXPIRY, attr,
+				     NULL))
+			continue;
+
+		if (!tb[SUNRPC_A_IP_MAP_CLASS] ||
+		    !tb[SUNRPC_A_IP_MAP_ADDR])
+			continue;
+
+		if (data->nreqs >= data->maxreqs) {
+			int newmax = data->maxreqs ? data->maxreqs * 2 : 16;
+			struct ip_map_req *tmp;
+
+			tmp = realloc(data->reqs, newmax * sizeof(*tmp));
+			if (!tmp) {
+				data->err = -ENOMEM;
+				return NL_STOP;
+			}
+			data->reqs = tmp;
+			data->maxreqs = newmax;
+		}
+
+		req = &data->reqs[data->nreqs++];
+		req->class = strdup(nla_get_string(tb[SUNRPC_A_IP_MAP_CLASS]));
+		req->addr = strdup(nla_get_string(tb[SUNRPC_A_IP_MAP_ADDR]));
+
+		if (!req->class || !req->addr) {
+			data->err = -ENOMEM;
+			return NL_STOP;
+		}
+	}
+
+	return NL_OK;
+}
+
+static int cache_nl_get_ip_map_reqs(struct ip_map_req **reqs_out,
+				    int *nreqs_out)
+{
+	struct get_ip_map_reqs_data data = { };
+	struct nl_msg *msg;
+	struct nl_cb *cb;
+	int done = 0;
+	int ret;
+
+	msg = cache_nl_new_msg(sunrpc_nl_family,
+			       SUNRPC_CMD_IP_MAP_GET_REQS, NLM_F_DUMP);
+	if (!msg)
+		return -ENOMEM;
+
+	cb = nl_cb_alloc(NL_CB_DEFAULT);
+	if (!cb) {
+		nlmsg_free(msg);
+		return -ENOMEM;
+	}
+
+	nl_cb_set(cb, NL_CB_VALID, NL_CB_CUSTOM, get_ip_map_reqs_cb, &data);
+	nl_cb_set(cb, NL_CB_FINISH, NL_CB_CUSTOM, nl_finish_cb, &done);
+	nl_cb_err(cb, NL_CB_CUSTOM, nl_error_cb, &done);
+
+	ret = nl_send_auto(sunrpc_nl_cmd_sock, msg);
+	nlmsg_free(msg);
+	if (ret < 0) {
+		nl_cb_put(cb);
+		return ret;
+	}
+
+	while (!done) {
+		ret = nl_recvmsgs(sunrpc_nl_cmd_sock, cb);
+		if (ret < 0)
+			break;
+	}
+
+	nl_cb_put(cb);
+
+	if (data.err) {
+		int i;
+		for (i = 0; i < data.nreqs; i++) {
+			free(data.reqs[i].class);
+			free(data.reqs[i].addr);
+		}
+		free(data.reqs);
+		return data.err;
+	}
+
+	*reqs_out = data.reqs;
+	*nreqs_out = data.nreqs;
+	return 0;
+}
+
+static int nl_add_ip_map(struct nl_msg *msg, char *class, char *addr,
+			 char *domain)
+{
+	struct nlattr *nest;
+	time_t now = time(0);
+
+	nest = nla_nest_start(msg, SUNRPC_A_IP_MAP_REQS_REQUESTS);
+	if (!nest)
+		return -1;
+
+	if (nla_put_string(msg, SUNRPC_A_IP_MAP_CLASS, class) < 0 ||
+	    nla_put_string(msg, SUNRPC_A_IP_MAP_ADDR, addr) < 0 ||
+	    nla_put_u64(msg, SUNRPC_A_IP_MAP_EXPIRY,
+			now + default_ttl) < 0)
+		goto nla_failure;
+
+	if (domain) {
+		if (nla_put_string(msg, SUNRPC_A_IP_MAP_DOMAIN,
+				   domain) < 0)
+			goto nla_failure;
+	} else {
+		if (nla_put_flag(msg, SUNRPC_A_IP_MAP_NEGATIVE) < 0)
+			goto nla_failure;
+	}
+
+	nla_nest_end(msg, nest);
+	return 0;
+
+nla_failure:
+	nla_nest_cancel(msg, nest);
+	return -1;
+}
+
+static void cache_nl_process_ip_map(void)
+{
+	struct ip_map_req *reqs = NULL;
+	int nreqs = 0;
+	struct nl_msg *msg;
+	int i;
+
+	if (cache_nl_get_ip_map_reqs(&reqs, &nreqs)) {
+		xlog(L_WARNING, "cache_nl_process_ip_map: failed to get ip_map requests");
+		return;
+	}
+
+	if (!nreqs)
+		return;
+
+	xlog(D_CALL, "cache_nl_process_ip_map: %d pending ip_map requests",
+	     nreqs);
+
+	msg = cache_nl_new_msg(sunrpc_nl_family,
+			       SUNRPC_CMD_IP_MAP_SET_REQS, 0);
+	if (!msg)
+		goto out_free;
+
+	for (i = 0; i < nreqs; i++) {
+		char *class = reqs[i].class;
+		char *ipaddr = reqs[i].addr;
+		char *client = NULL;
+		char *domain = NULL;
+		char *dom_alloc = NULL;
+		struct addrinfo *tmp = NULL;
+
+		if (strcmp(class, "nfsd") == 0) {
+			tmp = host_pton(ipaddr);
+			if (tmp) {
+				struct addrinfo *ai;
+
+				ai = client_resolve(tmp->ai_addr);
+				if (ai) {
+					client = client_compose(ai);
+					nfs_freeaddrinfo(ai);
+				}
+			}
+
+			if (use_ipaddr && client) {
+				dom_alloc = malloc(strlen(ipaddr) + 2);
+				if (dom_alloc) {
+					dom_alloc[0] = '$';
+					strcpy(dom_alloc + 1, ipaddr);
+					domain = dom_alloc;
+				}
+			} else if (client) {
+				domain = *client ? client : "DEFAULT";
+			}
+		}
+
+		if (nl_add_ip_map(msg, class, ipaddr, domain) < 0) {
+			cache_nl_set_reqs(sunrpc_nl_cmd_sock, msg);
+			nlmsg_free(msg);
+			msg = cache_nl_new_msg(sunrpc_nl_family,
+					       SUNRPC_CMD_IP_MAP_SET_REQS, 0);
+			if (!msg) {
+				free(dom_alloc);
+				free(client);
+				nfs_freeaddrinfo(tmp);
+				goto out_free;
+			}
+			if (nl_add_ip_map(msg, class, ipaddr, domain) < 0)
+				xlog(L_WARNING, "%s: skipping oversized "
+				     "entry for %s", __func__, ipaddr);
+		}
+
+		if (tmp && !client)
+			xlog(D_AUTH, "failed authentication for IP %s",
+			     ipaddr);
+		else if (client && !use_ipaddr)
+			xlog(D_AUTH, "successful authentication for IP %s as %s",
+			     ipaddr, *client ? client : "DEFAULT");
+		else if (client)
+			xlog(D_AUTH, "successful authentication for IP %s",
+			     ipaddr);
+
+		free(dom_alloc);
+		free(client);
+		nfs_freeaddrinfo(tmp);
+	}
+
+	cache_nl_set_reqs(sunrpc_nl_cmd_sock, msg);
+	nlmsg_free(msg);
+
+out_free:
+	for (i = 0; i < nreqs; i++) {
+		free(reqs[i].class);
+		free(reqs[i].addr);
+	}
+	free(reqs);
+}
+
+static void cache_sunrpc_nl_process(void)
+{
+	/* Drain pending sunrpc notifications */
+	cache_sunrpc_nl_drain();
+
+	auth_reload();
+
+	/* Handle any pending ip_map requests */
+	cache_nl_process_ip_map();
+}
+
 static int can_reexport_via_fsidnum(struct exportent *exp, struct statfs *st)
 {
 	if (st->f_type != 0x6969 /* NFS_SUPER_MAGIC */)
@@ -2476,6 +2785,7 @@ void cache_open(void)
 		cachelist[i].f = open(path, O_RDWR);
 	}
 	cache_nfsd_nl_open();
+	cache_sunrpc_nl_open();
 }
 
 /**
@@ -2491,6 +2801,8 @@ void cache_set_fds(fd_set *fdset)
 	}
 	if (nfsd_nl_notify_sock)
 		FD_SET(nl_socket_get_fd(nfsd_nl_notify_sock), fdset);
+	if (sunrpc_nl_notify_sock)
+		FD_SET(nl_socket_get_fd(sunrpc_nl_notify_sock), fdset);
 }
 
 /**
@@ -2514,6 +2826,12 @@ int cache_process_req(fd_set *readfds)
 		cnt++;
 		cache_nfsd_nl_process();
 		FD_CLR(nl_socket_get_fd(nfsd_nl_notify_sock), readfds);
+	}
+	if (sunrpc_nl_notify_sock &&
+	    FD_ISSET(nl_socket_get_fd(sunrpc_nl_notify_sock), readfds)) {
+		cnt++;
+		cache_sunrpc_nl_process();
+		FD_CLR(nl_socket_get_fd(sunrpc_nl_notify_sock), readfds);
 	}
 	return cnt;
 }
