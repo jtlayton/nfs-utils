@@ -1477,7 +1477,7 @@ static struct nl_msg *cache_nl_new_msg(int family, int cmd, int flags)
 	return msg;
 }
 
-static int cache_nl_set_reqs(struct nl_msg *msg)
+static int cache_nl_set_reqs(struct nl_sock *sock, struct nl_msg *msg)
 {
 	struct nl_cb *cb;
 	int done = 0;
@@ -1490,14 +1490,14 @@ static int cache_nl_set_reqs(struct nl_msg *msg)
 	nl_cb_set(cb, NL_CB_ACK, NL_CB_CUSTOM, nl_finish_cb, &done);
 	nl_cb_err(cb, NL_CB_CUSTOM, nl_error_cb, &done);
 
-	ret = nl_send_auto(nfsd_nl_cmd_sock, msg);
+	ret = nl_send_auto(sock, msg);
 	if (ret < 0) {
 		nl_cb_put(cb);
 		return ret;
 	}
 
 	while (!done) {
-		ret = nl_recvmsgs(nfsd_nl_cmd_sock, cb);
+		ret = nl_recvmsgs(sock, cb);
 		if (ret < 0)
 			break;
 	}
@@ -1514,9 +1514,6 @@ static void cache_nl_process_export(void)
 	int nreqs = 0;
 	struct nl_msg *msg;
 	int i;
-
-	/* Drain pending notifications */
-	cache_nfsd_nl_drain();
 
 	/* Fetch all pending requests from the kernel */
 	if (cache_nl_get_export_reqs(&reqs, &nreqs)) {
@@ -1571,7 +1568,7 @@ static void cache_nl_process_export(void)
 		}
 
 		if (nfsd_nl_add_export(msg, dom, path, epp, ttl) < 0) {
-			cache_nl_set_reqs(msg);
+			cache_nl_set_reqs(nfsd_nl_cmd_sock, msg);
 			nlmsg_free(msg);
 			msg = cache_nl_new_msg(nfsd_nl_family,
 					       NFSD_CMD_SVC_EXPORT_SET_REQS, 0);
@@ -1588,7 +1585,7 @@ static void cache_nl_process_export(void)
 		nfs_freeaddrinfo(ai);
 	}
 
-	cache_nl_set_reqs(msg);
+	cache_nl_set_reqs(nfsd_nl_cmd_sock, msg);
 	nlmsg_free(msg);
 
 out_free:
@@ -1597,6 +1594,314 @@ out_free:
 		free(reqs[i].path);
 	}
 	free(reqs);
+}
+
+/*
+ * Netlink-based expkey (nfsd.fh) cache support.
+ *
+ * Uses the same nfsd genl family as svc_export. The kernel sends
+ * NFSD_CMD_CACHE_NOTIFY with NFSD_CACHE_TYPE_EXPKEY to signal
+ * pending expkey cache requests.
+ */
+struct expkey_req {
+	char	*client;
+	int	fsidtype;
+	char	*fsid;
+	int	fsidlen;
+};
+
+struct get_expkey_reqs_data {
+	struct expkey_req	*reqs;
+	int			nreqs;
+	int			maxreqs;
+	int			err;
+};
+
+static int get_expkey_reqs_cb(struct nl_msg *msg, void *arg)
+{
+	struct get_expkey_reqs_data *data = arg;
+	struct genlmsghdr *gnlh = nlmsg_data(nlmsg_hdr(msg));
+	struct nlattr *attr;
+	int rem;
+
+	nla_for_each_attr(attr, genlmsg_attrdata(gnlh, 0),
+			  genlmsg_attrlen(gnlh, 0), rem) {
+		struct nlattr *tb[NFSD_A_EXPKEY_PATH + 1];
+		struct expkey_req *req;
+
+		if (nla_type(attr) != NFSD_A_EXPKEY_REQS_REQUESTS)
+			continue;
+
+		if (nla_parse_nested(tb, NFSD_A_EXPKEY_PATH, attr, NULL))
+			continue;
+
+		if (!tb[NFSD_A_EXPKEY_CLIENT] ||
+		    !tb[NFSD_A_EXPKEY_FSIDTYPE] ||
+		    !tb[NFSD_A_EXPKEY_FSID])
+			continue;
+
+		if (data->nreqs >= data->maxreqs) {
+			int newmax = data->maxreqs ? data->maxreqs * 2 : 16;
+			struct expkey_req *tmp;
+
+			tmp = realloc(data->reqs, newmax * sizeof(*tmp));
+			if (!tmp) {
+				data->err = -ENOMEM;
+				return NL_STOP;
+			}
+			data->reqs = tmp;
+			data->maxreqs = newmax;
+		}
+
+		req = &data->reqs[data->nreqs++];
+		req->client = strdup(nla_get_string(tb[NFSD_A_EXPKEY_CLIENT]));
+		req->fsidtype = nla_get_u8(tb[NFSD_A_EXPKEY_FSIDTYPE]);
+		req->fsidlen = nla_len(tb[NFSD_A_EXPKEY_FSID]);
+		req->fsid = malloc(req->fsidlen);
+
+		if (!req->client || !req->fsid) {
+			data->err = -ENOMEM;
+			return NL_STOP;
+		}
+		memcpy(req->fsid, nla_data(tb[NFSD_A_EXPKEY_FSID]),
+		       req->fsidlen);
+	}
+
+	return NL_OK;
+}
+
+static int cache_nl_get_expkey_reqs(struct expkey_req **reqs_out,
+				    int *nreqs_out)
+{
+	struct get_expkey_reqs_data data = { };
+	struct nl_msg *msg;
+	struct nl_cb *cb;
+	int done = 0;
+	int ret;
+
+	msg = cache_nl_new_msg(nfsd_nl_family,
+			       NFSD_CMD_EXPKEY_GET_REQS, NLM_F_DUMP);
+	if (!msg)
+		return -ENOMEM;
+
+	cb = nl_cb_alloc(NL_CB_DEFAULT);
+	if (!cb) {
+		nlmsg_free(msg);
+		return -ENOMEM;
+	}
+
+	nl_cb_set(cb, NL_CB_VALID, NL_CB_CUSTOM, get_expkey_reqs_cb, &data);
+	nl_cb_set(cb, NL_CB_FINISH, NL_CB_CUSTOM, nl_finish_cb, &done);
+	nl_cb_err(cb, NL_CB_CUSTOM, nl_error_cb, &done);
+
+	ret = nl_send_auto(nfsd_nl_cmd_sock, msg);
+	nlmsg_free(msg);
+	if (ret < 0) {
+		nl_cb_put(cb);
+		return ret;
+	}
+
+	while (!done) {
+		ret = nl_recvmsgs(nfsd_nl_cmd_sock, cb);
+		if (ret < 0)
+			break;
+	}
+
+	nl_cb_put(cb);
+
+	if (data.err) {
+		int i;
+		for (i = 0; i < data.nreqs; i++) {
+			free(data.reqs[i].client);
+			free(data.reqs[i].fsid);
+		}
+		free(data.reqs);
+		return data.err;
+	}
+
+	*reqs_out = data.reqs;
+	*nreqs_out = data.nreqs;
+	return 0;
+}
+
+static int nfsd_nl_add_expkey(struct nl_msg *msg, char *dom, int fsidtype,
+			 char *fsid, int fsidlen, char *found_path)
+{
+	struct nlattr *nest;
+
+	nest = nla_nest_start(msg, NFSD_A_EXPKEY_REQS_REQUESTS);
+	if (!nest)
+		return -1;
+
+	if (nla_put_string(msg, NFSD_A_EXPKEY_CLIENT, dom) < 0 ||
+	    nla_put_u8(msg, NFSD_A_EXPKEY_FSIDTYPE, fsidtype) < 0 ||
+	    nla_put(msg, NFSD_A_EXPKEY_FSID, fsidlen, fsid) < 0 ||
+	    nla_put_u64(msg, NFSD_A_EXPKEY_EXPIRY, 0x7fffffff) < 0)
+		goto nla_failure;
+
+	if (found_path) {
+		if (nla_put_string(msg, NFSD_A_EXPKEY_PATH,
+				   found_path) < 0)
+			goto nla_failure;
+	} else {
+		if (nla_put_flag(msg, NFSD_A_EXPKEY_NEGATIVE) < 0)
+			goto nla_failure;
+	}
+
+	nla_nest_end(msg, nest);
+	return 0;
+
+nla_failure:
+	nla_nest_cancel(msg, nest);
+	return -1;
+}
+
+static void cache_nl_process_expkey(void)
+{
+	struct expkey_req *reqs = NULL;
+	int nreqs = 0;
+	struct nl_msg *msg;
+	int i;
+
+	if (cache_nl_get_expkey_reqs(&reqs, &nreqs)) {
+		xlog(L_WARNING, "cache_nl_process_expkey: failed to get expkey requests");
+		return;
+	}
+
+	if (!nreqs)
+		return;
+
+	xlog(D_CALL, "cache_nl_process_expkey: %d pending expkey requests", nreqs);
+
+	msg = cache_nl_new_msg(nfsd_nl_family, NFSD_CMD_EXPKEY_SET_REQS, 0);
+	if (!msg)
+		goto out_free;
+
+	for (i = 0; i < nreqs; i++) {
+		char *dom = reqs[i].client;
+		int fsidtype = reqs[i].fsidtype;
+		char *fsid = reqs[i].fsid;
+		int fsidlen = reqs[i].fsidlen;
+		struct parsed_fsid parsed;
+		struct addrinfo *ai = NULL;
+		struct exportent *found = NULL;
+		char *found_path = NULL;
+		nfs_export *exp;
+		int j;
+
+		if (parse_fsid(fsidtype, fsidlen, fsid, &parsed))
+			goto do_add_expkey;
+
+		if (is_ipaddr_client(dom)) {
+			ai = lookup_client_addr(dom);
+			if (!ai)
+				goto do_add_expkey;
+		}
+
+		for (j = 0; j < MCL_MAXTYPES; j++) {
+			nfs_export *prev = NULL;
+			nfs_export *next_exp;
+			void *mnt = NULL;
+
+			for (exp = exportlist[j].p_head; exp;
+			     exp = next_exp) {
+				char *path;
+
+				if (exp->m_export.e_flags &
+				    NFSEXP_CROSSMOUNT) {
+					if (prev == exp) {
+						path = next_mnt(&mnt,
+							exp->m_export.e_path);
+						if (!path) {
+							next_exp = exp->m_next;
+							prev = NULL;
+							continue;
+						}
+						next_exp = exp;
+					} else {
+						prev = exp;
+						mnt = NULL;
+						path = exp->m_export.e_path;
+						next_exp = exp;
+					}
+				} else {
+					path = exp->m_export.e_path;
+					next_exp = exp->m_next;
+				}
+
+				if (!is_ipaddr_client(dom) &&
+				    !namelist_client_matches(exp, dom))
+					continue;
+
+				switch (match_fsid(&parsed, exp, path)) {
+				case 0:
+					continue;
+				case -1:
+					continue;
+				}
+
+				if (is_ipaddr_client(dom) &&
+				    !ipaddr_client_matches(exp, ai))
+					continue;
+
+				if (!found ||
+				    subexport(&exp->m_export, found)) {
+					found = &exp->m_export;
+					free(found_path);
+					found_path = strdup(path);
+					if (!found_path)
+						goto do_add_expkey;
+				}
+			}
+		}
+
+do_add_expkey:
+		if (nfsd_nl_add_expkey(msg, dom, fsidtype, fsid,
+				       fsidlen, found_path) < 0) {
+			cache_nl_set_reqs(nfsd_nl_cmd_sock, msg);
+			nlmsg_free(msg);
+			msg = cache_nl_new_msg(nfsd_nl_family,
+					       NFSD_CMD_EXPKEY_SET_REQS, 0);
+			if (!msg) {
+				free(found_path);
+				nfs_freeaddrinfo(ai);
+				goto out_free;
+			}
+			if (nfsd_nl_add_expkey(msg, dom, fsidtype, fsid,
+					       fsidlen, found_path) < 0)
+				xlog(L_WARNING, "%s: skipping oversized "
+				     "entry", __func__);
+		}
+		if (!found)
+			xlog(D_AUTH, "denied access to %s",
+			     *dom == '$' ? dom + 1 : dom);
+		free(found_path);
+		nfs_freeaddrinfo(ai);
+	}
+
+	cache_nl_set_reqs(nfsd_nl_cmd_sock, msg);
+	nlmsg_free(msg);
+
+out_free:
+	for (i = 0; i < nreqs; i++) {
+		free(reqs[i].client);
+		free(reqs[i].fsid);
+	}
+	free(reqs);
+}
+
+static void cache_nfsd_nl_process(void)
+{
+	/* Drain pending nfsd notifications */
+	cache_nfsd_nl_drain();
+
+	auth_reload();
+
+	/* Handle any pending svc_export requests */
+	cache_nl_process_export();
+
+	/* Handle any pending expkey requests */
+	cache_nl_process_expkey();
 }
 
 static int can_reexport_via_fsidnum(struct exportent *exp, struct statfs *st)
@@ -2207,7 +2512,7 @@ int cache_process_req(fd_set *readfds)
 	if (nfsd_nl_notify_sock &&
 	    FD_ISSET(nl_socket_get_fd(nfsd_nl_notify_sock), readfds)) {
 		cnt++;
-		cache_nl_process_export();
+		cache_nfsd_nl_process();
 		FD_CLR(nl_socket_get_fd(nfsd_nl_notify_sock), readfds);
 	}
 	return cnt;
