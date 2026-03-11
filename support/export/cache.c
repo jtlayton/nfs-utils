@@ -3013,6 +3013,16 @@ void cache_open(void)
 {
 	int i;
 
+	if (cache_nfsd_nl_open() == 0) {
+		if (cache_sunrpc_nl_open() == 0)
+			return;
+		xlog(L_NOTICE, "sunrpc netlink family unavailable, falling back to /proc");
+		nl_socket_free(nfsd_nl_notify_sock);
+		nfsd_nl_notify_sock = NULL;
+		nl_socket_free(nfsd_nl_cmd_sock);
+		nfsd_nl_cmd_sock = NULL;
+	}
+
 	for (i=0; cachelist[i].cache_name; i++ ) {
 		char path[100];
 		if (!manage_gids && cachelist[i].cache_handle == auth_unix_gid)
@@ -3020,8 +3030,6 @@ void cache_open(void)
 		sprintf(path, "/proc/net/rpc/%s/channel", cachelist[i].cache_name);
 		cachelist[i].f = open(path, O_RDWR);
 	}
-	cache_nfsd_nl_open();
-	cache_sunrpc_nl_open();
 }
 
 /**
