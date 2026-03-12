@@ -3014,8 +3014,19 @@ void cache_open(void)
 	int i;
 
 	if (cache_nfsd_nl_open() == 0) {
-		if (cache_sunrpc_nl_open() == 0)
+		if (cache_sunrpc_nl_open() == 0) {
+			/*
+			 * Check for pending requests, in case any
+			 * were queued before we opened the socket.
+			 */
+			auth_reload();
+			cache_nl_process_export();
+			cache_nl_process_expkey();
+			cache_nl_process_ip_map();
+			if (manage_gids)
+				cache_nl_process_unix_gid();
 			return;
+		}
 		xlog(L_NOTICE, "sunrpc netlink family unavailable, falling back to /proc");
 		nl_socket_free(nfsd_nl_notify_sock);
 		nfsd_nl_notify_sock = NULL;
