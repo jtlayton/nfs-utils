@@ -12,7 +12,7 @@ EXTRA_DIST	= mount.x
 noinst_LIBRARIES = libexport.a
 libexport_a_SOURCES = client.c export.c hostname.c \
 		      xtab.c mount_clnt.c mount_xdr.c \
-		      cache.c auth.c v4root.c fsloc.c \
+		      cache.c cache_flush.c auth.c v4root.c fsloc.c \
 		      v4clients.c
 libexport_a_CPPFLAGS = $(AM_CPPFLAGS) $(CPPFLAGS) -I$(top_srcdir)/support/reexport \
 		       $(LIBNL3_CFLAGS) $(LIBNLGENL3_CFLAGS)
