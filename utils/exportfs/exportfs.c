@@ -40,6 +40,15 @@
 #include "conffile.h"
 #include "reexport.h"
 
+#include <netlink/genl/genl.h>
+#include <netlink/genl/ctrl.h>
+
+#ifdef USE_SYSTEM_SUNRPC_NETLINK_H
+#include <linux/sunrpc_netlink.h>
+#else
+#include "sunrpc_netlink.h"
+#endif
+
 static void	export_all(int verbose);
 static void	exportfs(char *arg, char *options, int verbose);
 static void	unexportfs(char *arg, int verbose);
@@ -476,13 +485,34 @@ unexportfs(char *arg, int verbose)
 		xlog(L_ERROR, "Invalid export syntax: %s", arg);
 }
 
+/* Return values:
+ *   2 = netlink available (skip export_test)
+ *   1 = /proc available (keep export_test)
+ *   0 = neither available
+ */
 static int can_test(void)
 {
+	struct nl_sock *sock;
+	int family;
 	char buf[1024] = { 0 };
 	int fd;
 	int n;
 	size_t bufsiz = sizeof(buf);
 
+	/* Try netlink first: resolve sunrpc genl family */
+	sock = nl_socket_alloc();
+	if (sock) {
+		if (genl_connect(sock) == 0) {
+			family = genl_ctrl_resolve(sock, SUNRPC_FAMILY_NAME);
+			nl_socket_free(sock);
+			if (family >= 0)
+				return 2;
+		} else {
+			nl_socket_free(sock);
+		}
+	}
+
+	/* Fallback: /proc probe */
 	fd = open("/proc/net/rpc/auth.unix.ip/channel", O_WRONLY);
 	if (fd < 0)
 		return 0;
@@ -522,6 +552,7 @@ validate_export(nfs_export *exp)
 	char *path = exportent_realpath(&exp->m_export);
 	struct statfs stf;
 	int fs_has_fsid = 0;
+	int test_result;
 
 	if (stat(path, &stb) < 0) {
 		xlog(L_ERROR, "Failed to stat %s: %m", path);
@@ -532,7 +563,16 @@ validate_export(nfs_export *exp)
 			"Remote access will fail", path);
 		return;
 	}
-	if (!can_test())
+
+	test_result = can_test();
+	if (!test_result)
+		return;
+
+	/*
+	 * When netlink is available, skip the export_test() probe.
+	 * mountd/exportd will validate exports at cache-fill time.
+	 */
+	if (test_result == 2)
 		return;
 
 	if (!statfs(path, &stf) &&
