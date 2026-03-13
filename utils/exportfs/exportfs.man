@@ -53,39 +53,14 @@ by using the
 command.
 .PP
 .B exportfs
-and its partner program
-.B rpc.mountd
-work in one of two modes: a legacy mode which applies to 2.4 and
-earlier versions of the Linux kernel, and a new mode which applies to
-2.6 and later versions, providing the
-.B nfsd
-virtual filesystem has been mounted at
-.I /proc/fs/nfsd
-or
-.IR /proc/fs/nfs .
-On 2.6 kernels, if this filesystem is not mounted, the legacy mode is used.
-.PP
-In the new mode,
-.B exportfs
-does not give any information to the kernel, but provides it only to
+does not give any information to the kernel directly, but provides it
+only to
 .B rpc.mountd
 through the
 .I /var/lib/nfs/etab
 file.
 .B rpc.mountd
 then manages kernel requests for information about exports, as needed.
-.PP
-In the legacy mode,
-exports which identify a specific host, rather than a subnet or netgroup,
-are entered directly into the kernel's export table,
-as well as being written to
-.IR /var/lib/nfs/etab .
-Further, exports listed in
-.I /var/lib/nfs/rmtab
-which match a non host-specific export request will cause an
-appropriate export entry for the host given in
-.I rmtab
-to be added to the kernel's export table.
 .SH OPTIONS
 .TP
 .B \-d kind " or " \-\-debug kind
