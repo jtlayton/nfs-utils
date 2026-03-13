@@ -106,6 +106,13 @@ the server. Note that the 'primary' group id is not affected so a
 .B newgroup
 command on the client will still be effective.  This function requires
 a Linux Kernel with version at least 2.6.21.
+.TP
+.B \-L " or " \-\-no-netlink
+Disable the use of netlink for kernel communication and force the use
+of the legacy
+.I /proc/net/rpc
+interfaces instead.  This can be useful for debugging or working around
+kernel netlink issues.
 .SH CONFIGURATION FILE
 Many of the options that can be set on the command line can also be
 controlled through values set in the
@@ -120,8 +127,9 @@ Values recognized in the
 section include 
 .B cache\-use\-ipaddr ,
 .BR ttl ,
-.BR manage-gids ", and"
-.B debug 
+.BR manage-gids ,
+.BR no\-netlink ", and"
+.B debug
 which each have the same effect as the option with the same name.
 .SH FILES
 .TP 2.5i

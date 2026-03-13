@@ -20,6 +20,8 @@
 #include "nfslib.h"
 #include "xlog.h"
 
+extern int no_netlink;
+
 #include <netlink/genl/genl.h>
 #include <netlink/genl/ctrl.h>
 #include <netlink/msg.h>
@@ -155,7 +157,7 @@ static void cache_proc_flush(void)
 void
 cache_flush(void)
 {
-	if (cache_nl_flush() == 0) {
+	if (!no_netlink && cache_nl_flush() == 0) {
 		xlog(D_NETLINK, "cache flush via netlink succeeded");
 		return;
 	}

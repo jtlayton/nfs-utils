@@ -111,6 +111,7 @@ static bool path_lookup_error(int err)
 
 extern int use_ipaddr;
 extern int manage_gids;
+extern int no_netlink;
 
 static void auth_unix_ip(int f)
 {
@@ -3064,7 +3065,7 @@ void cache_open(void)
 {
 	int i;
 
-	if (cache_nfsd_nl_open() == 0) {
+	if (!no_netlink && cache_nfsd_nl_open() == 0) {
 		if (cache_sunrpc_nl_open() == 0) {
 			/*
 			 * Check for pending requests, in case any

@@ -41,6 +41,7 @@ static struct nfs_fh_len *get_rootfh(struct svc_req *, dirpath *, nfs_export **,
 
 int reverse_resolve = 0;
 int manage_gids;
+int no_netlink;
 int apply_root_cred;
 int use_ipaddr = -1;
 
@@ -72,6 +73,7 @@ static struct option longopts[] =
 	{ "num-threads", 1, 0, 't' },
 	{ "reverse-lookup", 0, 0, 'r' },
 	{ "manage-gids", 0, 0, 'g' },
+	{ "no-netlink", 0, 0, 'L' },
 	{ "no-udp", 0, 0, 'u' },
 	{ "log-auth", 0, 0, 'l'},
 	{ "cache-use-ipaddr", 0, 0, 'i'},
@@ -667,6 +669,7 @@ read_mountd_conf(char **argv)
 
 	xlog_set_debug("mountd");
 	manage_gids = conf_get_bool("mountd", "manage-gids", manage_gids);
+	no_netlink = conf_get_bool("mountd", "no-netlink", no_netlink);
 	descriptors = conf_get_num("mountd", "descriptors", descriptors);
 	port = conf_get_num("mountd", "port", port);
 	num_threads = conf_get_num("mountd", "threads", num_threads);
@@ -733,6 +736,9 @@ main(int argc, char **argv)
 		switch (c) {
 		case 'g':
 			manage_gids = 1;
+			break;
+		case 'L':
+			no_netlink = 1;
 			break;
 		case 'o':
 			descriptors = atoi(optarg);
@@ -951,6 +957,7 @@ usage(const char *prog, int n)
 "	[-N version|--no-nfs-version version] [-n|--no-tcp]\n"
 "	[-H prog |--ha-callout prog] [-r |--reverse-lookup]\n"
 "	[-s|--state-directory-path path] [-g|--manage-gids]\n"
-"	[-t num|--num-threads=num] [-u|--no-udp]\n", prog);
+"	[-t num|--num-threads=num] [-u|--no-udp]\n"
+"	[-L|--no-netlink]\n", prog);
 	exit(n);
 }

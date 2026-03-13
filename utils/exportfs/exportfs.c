@@ -49,6 +49,8 @@
 #include "sunrpc_netlink.h"
 #endif
 
+int no_netlink;
+
 static void	export_all(int verbose);
 static void	exportfs(char *arg, char *options, int verbose);
 static void	unexportfs(char *arg, int verbose);
@@ -109,8 +111,11 @@ read_exportfs_conf(char **argv)
 	xlog_set_debug("exportfs");
 
 	/* NOTE: following uses "mountd" section of nfs.conf !!!! */
+	no_netlink = conf_get_bool("mountd", "no-netlink", no_netlink);
 	s = conf_get_str("mountd", "state-directory-path");
 	/* Also look in the exportd section */
+	if (!no_netlink)
+		no_netlink = conf_get_bool("exportd", "no-netlink", no_netlink);
 	if (s == NULL)
 		s = conf_get_str("exportd", "state-directory-path");
 	if (s && !state_setup_basedir(argv[0], s))
@@ -145,7 +150,7 @@ main(int argc, char **argv)
 
 	nfsd_path_init();
 
-	while ((c = getopt(argc, argv, "ad:fhio:ruvs")) != EOF) {
+	while ((c = getopt(argc, argv, "ad:fhiLo:ruvs")) != EOF) {
 		switch(c) {
 		case 'a':
 			f_all = 1;
@@ -161,6 +166,9 @@ main(int argc, char **argv)
 			break;
 		case 'i':
 			f_ignore = 1;
+			break;
+		case 'L':
+			no_netlink = 1;
 			break;
 		case 'o':
 			options = optarg;
@@ -500,6 +508,8 @@ static int can_test(void)
 	size_t bufsiz = sizeof(buf);
 
 	/* Try netlink first: resolve sunrpc genl family */
+	if (no_netlink)
+		goto try_proc;
 	sock = nl_socket_alloc();
 	if (sock) {
 		if (genl_connect(sock) == 0) {
@@ -513,6 +523,7 @@ static int can_test(void)
 	}
 
 	/* Fallback: /proc probe */
+try_proc:
 	fd = open("/proc/net/rpc/auth.unix.ip/channel", O_WRONLY);
 	if (fd < 0)
 		return 0;

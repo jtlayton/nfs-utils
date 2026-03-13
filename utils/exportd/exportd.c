@@ -32,6 +32,7 @@ static int num_threads = 1;
 #define MAX_THREADS 64
 
 int manage_gids;
+int no_netlink;
 int use_ipaddr = -1;
 
 static struct option longopts[] =
@@ -40,13 +41,14 @@ static struct option longopts[] =
 	{ "debug", 1, 0, 'd' },
 	{ "help", 0, 0, 'h' },
 	{ "manage-gids", 0, 0, 'g' },
+	{ "no-netlink", 0, 0, 'L' },
 	{ "num-threads", 1, 0, 't' },
 	{ "log-auth", 0, 0, 'l' },
 	{ "cache-use-ipaddr", 0, 0, 'i' },
 	{ "ttl", 0, 0, 'T' },
 	{ NULL, 0, 0, 0 }
 };
-static char shortopts[] = "d:fghs:t:liT:";
+static char shortopts[] = "d:fghs:t:liLT:";
 
 /*
  * Signal handlers.
@@ -109,7 +111,7 @@ usage(const char *prog, int n)
 		"Usage: %s [-f|--foreground] [-h|--help] [-d kind|--debug kind]\n"
 "	[-g|--manage-gids] [-l|--log-auth] [-i|--cache-use-ipaddr] [-T|--ttl ttl]\n"
 "	[-s|--state-directory-path path]\n"
-"	[-t num|--num-threads=num]\n", prog);
+"	[-t num|--num-threads=num] [-L|--no-netlink]\n", prog);
 	exit(n);
 }
 
@@ -124,6 +126,7 @@ read_exportd_conf(char *progname, char **argv)
 	xlog_set_debug(progname);
 
 	manage_gids = conf_get_bool("exportd", "manage-gids", manage_gids);
+	no_netlink = conf_get_bool("exportd", "no-netlink", no_netlink);
 	num_threads = conf_get_num("exportd", "threads", num_threads);
 	if (conf_get_bool("mountd", "cache-use-ipaddr", 0))
 		use_ipaddr = 2;
@@ -170,6 +173,9 @@ main(int argc, char **argv)
 			break;
 		case 'g':
 			manage_gids = 1;
+			break;
+		case 'L':
+			no_netlink = 1;
 			break;
 		case 'h':
 			usage(progname, 0);
