@@ -810,7 +810,10 @@ static int nfsd_handle_fh(int f, char *bp, int blen)
 
 	/* Now determine export point for this fsid/domain */
 	for (i=0 ; i < MCL_MAXTYPES; i++) {
+		nfs_export *prev = NULL;
 		nfs_export *next_exp;
+		void *mnt = NULL;
+
 		for (exp = exportlist[i].p_head; exp; exp = next_exp) {
 			char *path;
 
@@ -820,9 +823,6 @@ static int nfsd_handle_fh(int f, char *bp, int blen)
 			}
 
 			if (exp->m_export.e_flags & NFSEXP_CROSSMOUNT) {
-				static nfs_export *prev = NULL;
-				static void *mnt = NULL;
-				
 				if (prev == exp) {
 					/* try a submount */
 					path = next_mnt(&mnt, exp->m_export.e_path);
