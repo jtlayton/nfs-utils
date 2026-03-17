@@ -23,6 +23,17 @@
 #include <signal.h>
 #include <time.h>
 
+#include <netlink/genl/genl.h>
+#include <netlink/genl/ctrl.h>
+#include <netlink/msg.h>
+#include <netlink/attr.h>
+
+#ifdef USE_SYSTEM_NFSD_NETLINK_H
+#include <linux/nfsd_netlink.h>
+#else
+#include "nfsd_netlink.h"
+#endif
+
 #define MAXNRVALS	32
 
 enum {
@@ -271,6 +282,7 @@ static statinfo		*get_stat_info(const char *, struct statinfo *);
 
 static int		mounts(const char *);
 
+static int		get_stats_netlink(struct statinfo *);
 static void		get_stats(const char *, struct statinfo *, int *, int,
 					int);
 static int		has_stats(const unsigned int *, int);
@@ -1051,6 +1063,272 @@ mounts(const char *name)
 	return 1;
 }
 
+/*
+ * Netlink helpers for fetching server stats via Generic Netlink.
+ */
+static int nl_error_handler(struct sockaddr_nl *nla, struct nlmsgerr *err,
+			    void *arg)
+{
+	int *ret = arg;
+
+	*ret = err->error;
+	return NL_SKIP;
+}
+
+static int nl_finish_handler(struct nl_msg *msg, void *arg)
+{
+	int *ret = arg;
+
+	*ret = 0;
+	return NL_SKIP;
+}
+
+static int nl_ack_handler(struct nl_msg *msg, void *arg)
+{
+	int *ret = arg;
+
+	*ret = 0;
+	return NL_STOP;
+}
+
+static void parse_one_proc_entry(struct nlattr *nest, unsigned int *info,
+				 unsigned int max_ops)
+{
+	struct nlattr *tb[NFSD_A_SERVER_PROC_ENTRY_MAX + 1];
+	unsigned int op, count;
+
+	nla_parse_nested(tb, NFSD_A_SERVER_PROC_ENTRY_MAX, nest, NULL);
+	if (!tb[NFSD_A_SERVER_PROC_ENTRY_OP] ||
+	    !tb[NFSD_A_SERVER_PROC_ENTRY_COUNT])
+		return;
+
+	op = nla_get_u32(tb[NFSD_A_SERVER_PROC_ENTRY_OP]);
+	count = (unsigned int)nla_get_u64(tb[NFSD_A_SERVER_PROC_ENTRY_COUNT]);
+	if (op < max_ops) {
+		info[0] = max_ops;
+		info[op + 1] = count;
+	}
+}
+
+static int stats_nl_handler(struct nl_msg *msg, void *arg)
+{
+	struct statinfo *info = arg;
+	struct genlmsghdr *gnlh = nlmsg_data(nlmsg_hdr(msg));
+	struct nlattr *attr;
+	statinfo *si;
+	int rem;
+
+	nla_for_each_attr(attr, genlmsg_attrdata(gnlh, 0),
+			  genlmsg_attrlen(gnlh, 0), rem) {
+		int type = nla_type(attr);
+
+		switch (type) {
+		/* Reply cache */
+		case NFSD_A_SERVER_STATS_RC_HITS:
+			si = get_stat_info("rc", info);
+			if (si)
+				si->valptr[0] = nla_get_u64(attr);
+			break;
+		case NFSD_A_SERVER_STATS_RC_MISSES:
+			si = get_stat_info("rc", info);
+			if (si)
+				si->valptr[1] = nla_get_u64(attr);
+			break;
+		case NFSD_A_SERVER_STATS_RC_NOCACHE:
+			si = get_stat_info("rc", info);
+			if (si)
+				si->valptr[2] = nla_get_u64(attr);
+			break;
+
+		/* Filehandle */
+		case NFSD_A_SERVER_STATS_FH_STALE:
+			si = get_stat_info("fh", info);
+			if (si)
+				si->valptr[0] = nla_get_u64(attr);
+			break;
+
+		/* IO */
+		case NFSD_A_SERVER_STATS_IO_READ:
+			si = get_stat_info("io", info);
+			if (si)
+				si->valptr[0] = nla_get_u64(attr);
+			break;
+		case NFSD_A_SERVER_STATS_IO_WRITE:
+			si = get_stat_info("io", info);
+			if (si)
+				si->valptr[1] = nla_get_u64(attr);
+			break;
+
+		/* Network */
+		case NFSD_A_SERVER_STATS_NETCNT:
+			si = get_stat_info("net", info);
+			if (si)
+				si->valptr[0] = nla_get_u32(attr);
+			break;
+		case NFSD_A_SERVER_STATS_NETUDPCNT:
+			si = get_stat_info("net", info);
+			if (si)
+				si->valptr[1] = nla_get_u32(attr);
+			break;
+		case NFSD_A_SERVER_STATS_NETTCPCNT:
+			si = get_stat_info("net", info);
+			if (si)
+				si->valptr[2] = nla_get_u32(attr);
+			break;
+		case NFSD_A_SERVER_STATS_NETTCPCONN:
+			si = get_stat_info("net", info);
+			if (si)
+				si->valptr[3] = nla_get_u32(attr);
+			break;
+
+		/* RPC */
+		case NFSD_A_SERVER_STATS_RPCCNT:
+			si = get_stat_info("rpc", info);
+			if (si)
+				si->valptr[0] = nla_get_u32(attr);
+			break;
+		case NFSD_A_SERVER_STATS_RPCBADFMT:
+			si = get_stat_info("rpc", info);
+			if (si)
+				si->valptr[2] = nla_get_u32(attr);
+			break;
+		case NFSD_A_SERVER_STATS_RPCBADAUTH:
+			si = get_stat_info("rpc", info);
+			if (si)
+				si->valptr[3] = nla_get_u32(attr);
+			break;
+		case NFSD_A_SERVER_STATS_RPCBADCLNT:
+			si = get_stat_info("rpc", info);
+			if (si)
+				si->valptr[4] = nla_get_u32(attr);
+			break;
+
+		/* Per-version procedure counts (multi-attr) */
+		case NFSD_A_SERVER_STATS_PROC2_OPS:
+			si = get_stat_info("proc2", info);
+			if (si)
+				parse_one_proc_entry(attr, si->valptr,
+						     SRVPROC2_SZ);
+			break;
+		case NFSD_A_SERVER_STATS_PROC3_OPS:
+			si = get_stat_info("proc3", info);
+			if (si)
+				parse_one_proc_entry(attr, si->valptr,
+						     SRVPROC3_SZ);
+			break;
+		case NFSD_A_SERVER_STATS_PROC4_OPS:
+			si = get_stat_info("proc4", info);
+			if (si)
+				parse_one_proc_entry(attr, si->valptr,
+						     SRVPROC4_SZ);
+			break;
+		case NFSD_A_SERVER_STATS_PROC4OPS_OPS:
+			si = get_stat_info("proc4ops", info);
+			if (si)
+				parse_one_proc_entry(attr, si->valptr,
+						     SRVPROC4OPS_SZ);
+			break;
+		}
+	}
+
+	return NL_OK;
+}
+
+/*
+ * Fetch server stats via Generic Netlink.
+ * Returns 0 on success, -1 on failure.
+ */
+static int
+get_stats_netlink(struct statinfo *info)
+{
+	struct nl_sock *sock;
+	struct nl_msg *msg;
+	struct nl_cb *cb;
+	int family, ret;
+	statinfo *si;
+
+	sock = nl_socket_alloc();
+	if (!sock)
+		return -1;
+
+	if (genl_connect(sock)) {
+		nl_socket_free(sock);
+		return -1;
+	}
+
+	family = genl_ctrl_resolve(sock, NFSD_FAMILY_NAME);
+	if (family < 0) {
+		nl_socket_free(sock);
+		return -1;
+	}
+
+	msg = nlmsg_alloc();
+	if (!msg) {
+		nl_socket_free(sock);
+		return -1;
+	}
+
+	if (!genlmsg_put(msg, NL_AUTO_PID, NL_AUTO_SEQ, family, 0,
+			 NLM_F_DUMP, NFSD_CMD_SERVER_STATS_GET, 0)) {
+		nlmsg_free(msg);
+		nl_socket_free(sock);
+		return -1;
+	}
+
+	cb = nl_cb_alloc(NL_CB_CUSTOM);
+	if (!cb) {
+		nlmsg_free(msg);
+		nl_socket_free(sock);
+		return -1;
+	}
+
+	ret = nl_send_auto(sock, msg);
+	if (ret < 0) {
+		nl_cb_put(cb);
+		nlmsg_free(msg);
+		nl_socket_free(sock);
+		return -1;
+	}
+
+	ret = 1;
+	nl_cb_err(cb, NL_CB_CUSTOM, nl_error_handler, &ret);
+	nl_cb_set(cb, NL_CB_FINISH, NL_CB_CUSTOM, nl_finish_handler, &ret);
+	nl_cb_set(cb, NL_CB_ACK, NL_CB_CUSTOM, nl_ack_handler, &ret);
+	nl_cb_set(cb, NL_CB_VALID, NL_CB_CUSTOM, stats_nl_handler, info);
+
+	while (ret > 0)
+		nl_recvmsgs(sock, cb);
+
+	nl_cb_put(cb);
+	nlmsg_free(msg);
+	nl_socket_free(sock);
+
+	if (ret < 0)
+		return -1;
+
+	/*
+	 * Compute derived fields. The proc file emits "rpc rpccnt
+	 * badcalls badfmt badauth badclnt" where badcalls is the sum
+	 * of badfmt+badauth+badclnt. The netlink interface sends the
+	 * components individually, so recompute the sum here.
+	 */
+	si = get_stat_info("rpc", info);
+	if (si)
+		si->valptr[1] = si->valptr[2] + si->valptr[3] + si->valptr[4];
+
+	/* Compute totals for each stat category */
+	for (si = info; si->tag; si++) {
+		unsigned int total = 0;
+		int i;
+
+		for (i = 0; i < si->nrvals - 1; i++)
+			total += si->valptr[i];
+		si->valptr[si->nrvals - 1] = total;
+	}
+
+	return 0;
+}
+
 static void
 get_stats(const char *file, struct statinfo *info, int *opt, int other_opt,
 		int is_srv)
@@ -1059,6 +1337,10 @@ get_stats(const char *file, struct statinfo *info, int *opt, int other_opt,
 	char buf[10];
 	int err = 1;
 	char *label = is_srv ? "Server" : "Client";
+
+	/* Try netlink first for server stats */
+	if (is_srv && get_stats_netlink(info) == 0)
+		return;
 
 	/* try to guess what type of stat file we're dealing with */
 	if ((fp = fopen(file, "r")) == NULL)
