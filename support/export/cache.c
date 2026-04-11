@@ -1181,7 +1181,12 @@ static int cache_nfsd_nl_open(void)
 			       &nfsd_nl_family);
 }
 
-static int nfsd_nl_notify_handler(struct nl_msg *UNUSED(msg), void *UNUSED(arg))
+static int nl_seq_check_handler(struct nl_msg *UNUSED(msg), void *UNUSED(arg))
+{
+	return NL_OK;
+}
+
+static int nl_notify_handler(struct nl_msg *UNUSED(msg), void *UNUSED(arg))
 {
 	return NL_OK;
 }
@@ -1194,7 +1199,8 @@ static void cache_nfsd_nl_drain(void)
 	if (!cb)
 		return;
 
-	nl_cb_set(cb, NL_CB_VALID, NL_CB_CUSTOM, nfsd_nl_notify_handler, NULL);
+	nl_cb_set(cb, NL_CB_SEQ_CHECK, NL_CB_CUSTOM, nl_seq_check_handler, NULL);
+	nl_cb_set(cb, NL_CB_VALID, NL_CB_CUSTOM, nl_notify_handler, NULL);
 	nl_recvmsgs(nfsd_nl_notify_sock, cb);
 	nl_cb_put(cb);
 }
@@ -1951,7 +1957,8 @@ static void cache_sunrpc_nl_drain(void)
 	if (!cb)
 		return;
 
-	nl_cb_set(cb, NL_CB_VALID, NL_CB_CUSTOM, nfsd_nl_notify_handler, NULL);
+	nl_cb_set(cb, NL_CB_SEQ_CHECK, NL_CB_CUSTOM, nl_seq_check_handler, NULL);
+	nl_cb_set(cb, NL_CB_VALID, NL_CB_CUSTOM, nl_notify_handler, NULL);
 	nl_recvmsgs(sunrpc_nl_notify_sock, cb);
 	nl_cb_put(cb);
 }
