@@ -44,6 +44,8 @@ enum {
 	SRVPROC4_SZ = 2,
 	CLTPROC4_SZ = 59,
 	SRVPROC4OPS_SZ = 71,
+	SRVPROC4CB_SZ = 16,	/* indexed by callback opcode; OP_CB_OFFLOAD == 15 */
+	SRVPROC4CB_FIRST = 3,	/* first assigned callback opcode, OP_CB_GETATTR */
 };
 
 static unsigned int	srvproc2info[SRVPROC2_SZ+2],
@@ -60,6 +62,8 @@ static unsigned int	cltproc4info[CLTPROC4_SZ+2],
 			cltproc4info_old[CLTPROC4_SZ+2];	/* NFSv4 call counts ([0] == 49) */
 static unsigned int	srvproc4opsinfo[SRVPROC4OPS_SZ+2],
 			srvproc4opsinfo_old[SRVPROC4OPS_SZ+2];	/* NFSv4 call counts ([0] == 59) */
+static unsigned int	srvproc4cbinfo[SRVPROC4CB_SZ+2],
+			srvproc4cbinfo_old[SRVPROC4CB_SZ+2];	/* NFSv4 callback op counts (netlink only, [0] == 16) */
 static unsigned int	srvnetinfo[5], srvnetinfo_old[5];	/* 0  # of received packets
 								 * 1  UDP packets
 								 * 2  TCP packets
@@ -207,6 +211,19 @@ static const char *     nfssrvproc4opname[SRVPROC4OPS_SZ] = {
 	"write_same",
 };
 
+/*
+ * NFSv4 callback (backchannel) operations, indexed directly by RFC 8881
+ * callback opcode.  Opcodes 0-2 are not assigned, so the first three slots
+ * are placeholders to keep the array index aligned with the opcode value;
+ * display starts at SRVPROC4CB_FIRST and never prints them.
+ */
+static const char *	nfssrvproc4cbname[SRVPROC4CB_SZ] = {
+	"op0-unused",	"op1-unused",	"op2-unused",	"cb_getattr",
+	"cb_recall",	"cb_layoutrecall", "cb_notify",	"cb_push_deleg",
+	"cb_recall_any","cb_recall_obj","cb_recall_slot", "cb_sequence",
+	"cb_wants_cancel", "cb_notify_lock", "cb_notify_devid", "cb_offload",
+};
+
 #define LABEL_srvnet		"Server packet stats:\n"
 #define LABEL_srvrpc		"Server rpc stats:\n"
 #define LABEL_srvrc		"Server reply cache:\n"
@@ -217,6 +234,7 @@ static const char *     nfssrvproc4opname[SRVPROC4OPS_SZ] = {
 #define LABEL_srvproc3		"Server nfs v3:\n"
 #define LABEL_srvproc4		"Server nfs v4:\n"
 #define LABEL_srvproc4ops	"Server nfs v4 operations:\n"
+#define LABEL_srvproc4cb	"Server nfs v4 callback operations:\n"
 #define LABEL_cltnet		"Client packet stats:\n"
 #define LABEL_cltrpc		"Client rpc stats:\n"
 #define LABEL_cltproc2		"Client nfs v2:\n"
@@ -250,6 +268,7 @@ typedef struct statinfo {
 					SRV(proc3,s),\
 					SRV(proc4,s), \
 					SRV(proc4ops,s),\
+					SRV(proc4cb,s),\
 					{ NULL, NULL, 0, NULL }\
 				}
 #define DECLARE_CLT(n, s...)  	static statinfo n##s[] = { \
@@ -683,14 +702,24 @@ print_server_stats(int opt_prt)
 					nfssrvproc4name, srvproc4info + 1, 
 					sizeof(nfssrvproc4name)/sizeof(char *));
 				print_callstats(LABEL_srvproc4ops,
-					nfssrvproc4opname, srvproc4opsinfo + 1, 
+					nfssrvproc4opname, srvproc4opsinfo + 1,
 					sizeof(nfssrvproc4opname)/sizeof(char *));
+				/*
+				 * Callback op counts are only available via
+				 * netlink; srvproc4cbinfo[0] is left zero when
+				 * stats come from /proc.
+				 */
+				if (srvproc4cbinfo[0])
+					print_callstats(LABEL_srvproc4cb,
+						nfssrvproc4cbname + SRVPROC4CB_FIRST,
+						srvproc4cbinfo + 1 + SRVPROC4CB_FIRST,
+						SRVPROC4CB_SZ - SRVPROC4CB_FIRST);
 			}
 		}
 	}
 }
 static void
-print_client_stats(int opt_prt) 
+print_client_stats(int opt_prt)
 {
 	if (opt_prt & PRNT_NET) {
 		if (opt_sleep && !has_rpcstats(cltnetinfo, 4)) {
@@ -806,8 +835,13 @@ print_serv_list(int opt_prt)
 					nfssrvproc4name, srvproc4info + 1, 
 					sizeof(nfssrvproc4name)/sizeof(char *));
 				print_callstats_list("nfs v4 servop",
-					nfssrvproc4opname, srvproc4opsinfo + 1, 
+					nfssrvproc4opname, srvproc4opsinfo + 1,
 					sizeof(nfssrvproc4opname)/sizeof(char *));
+				if (srvproc4cbinfo[0])
+					print_callstats_list("nfs v4 cback",
+						nfssrvproc4cbname + SRVPROC4CB_FIRST,
+						srvproc4cbinfo + 1 + SRVPROC4CB_FIRST,
+						SRVPROC4CB_SZ - SRVPROC4CB_FIRST);
 			}
 		}
 	}
@@ -1227,6 +1261,12 @@ static int stats_nl_handler(struct nl_msg *msg, void *arg)
 			if (si)
 				parse_one_proc_entry(attr, si->valptr,
 						     SRVPROC4OPS_SZ);
+			break;
+		case NFSD_A_SERVER_STATS_PROC4CB_OPS:
+			si = get_stat_info("proc4cb", info);
+			if (si)
+				parse_one_proc_entry(attr, si->valptr,
+						     SRVPROC4CB_SZ);
 			break;
 		}
 	}
