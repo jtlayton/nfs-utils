@@ -187,6 +187,8 @@ sm_mon_1_svc(struct mon *argp, struct svc_req *rqstp)
 	NL_MY_VERS(clnt) = id->my_vers;
 	NL_MY_PROC(clnt) = id->my_proc;
 	memcpy(NL_PRIV(clnt), argp->priv, SM_PRIV_SIZE);
+	if (existing)
+		free(clnt->dns_name);
 	clnt->dns_name = dnsname;
 
 	/*
