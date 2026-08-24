@@ -46,6 +46,7 @@
 
 #include "nfslib.h"
 #include "nfsdctl.h"
+#include "rpcbind.h"
 #include "conffile.h"
 #include "xlog.h"
 
@@ -71,18 +72,6 @@ struct nfs_version {
 #define MAX_NFS_VERSIONS	16
 
 struct nfs_version nfsd_versions[MAX_NFS_VERSIONS];
-
-/*
- * All of the existing netids are short strings (3-4 chars), but let's allow
- * for up to 16.
- */
-#define MAX_CLASS_NAME_LEN	16
-
-struct server_socket {
-	struct sockaddr_storage	ss;
-	char name[MAX_CLASS_NAME_LEN];
-	bool active;
-};
 
 #define MAX_NFSD_SOCKETS		256
 

@@ -5,9 +5,11 @@ EXTRA_DIST      = $(man8_MANS)
 
 sbin_PROGRAMS	= nfsdctl
 
-noinst_HEADERS = nfsdctl.h
-nfsdctl_SOURCES = nfsdctl.c
-nfsdctl_CFLAGS = $(LIBNL3_CFLAGS) $(LIBNLGENL3_CFLAGS) $(LIBREADLINE_CFLAGS)
-nfsdctl_LDADD = ../../support/nfs/libnfs.la $(LIBNL3_LIBS) $(LIBNLGENL3_LIBS) $(LIBREADLINE_LIBS)
+noinst_HEADERS = nfsdctl.h rpcbind.h
+nfsdctl_SOURCES = nfsdctl.c rpcbind.c
+nfsdctl_CFLAGS = $(LIBNL3_CFLAGS) $(LIBNLGENL3_CFLAGS) $(LIBREADLINE_CFLAGS) \
+		 $(TIRPC_CFLAGS)
+nfsdctl_LDADD = ../../support/nfs/libnfs.la $(LIBNL3_LIBS) $(LIBNLGENL3_LIBS) \
+		$(LIBREADLINE_LIBS) $(LIBTIRPC)
 
 MAINTAINERCLEANFILES = Makefile.in
