@@ -832,7 +832,7 @@ static int threads_func(struct nl_sock *sock, int argc, char **argv)
 	uint8_t cmd = NFSD_CMD_THREADS_GET;
 	int *pool_threads = NULL;
 	int minthreads = -1;
-	int opt, pools = 0;
+	int opt, pools = 0, ret;
 	uuid_t fh_key;
 	bool zero_threads = false;
 
@@ -873,7 +873,7 @@ static int threads_func(struct nl_sock *sock, int argc, char **argv)
 
 	if (optind < argc) {
 		char **targv = &argv[optind];
-		int i;
+		int i, total = 0;
 
 		pools = argc - optind;
 		pool_threads = alloca(pools * sizeof(*pool_threads));
@@ -889,13 +889,18 @@ static int threads_func(struct nl_sock *sock, int argc, char **argv)
 			}
 
 			pool_threads[i] = strtol(targv[i], &endptr, 0);
-			if (!pool_threads[i])
-				zero_threads = true;
+			total += pool_threads[i];
 			if (!endptr || *endptr != '\0') {
 				xlog(L_ERROR, "Invalid threads value %s.", argv[1]);
 				return 1;
 			}
 		}
+
+		/*
+		 * The serv only goes away when no pool has a thread left.
+		 * "threads 8 0" empties one pool and keeps the server up.
+		 */
+		zero_threads = (total == 0);
 	}
 	/* check if there are active listeners added */
 	if (fetch_current_listeners(sock)) {
@@ -908,14 +913,25 @@ static int threads_func(struct nl_sock *sock, int argc, char **argv)
 			 * listener. If we ever add functionality to remove
 			 * listeners on an active server, we need to revisit this.
 			 */
+			if (userspace_rpcbind_supported())
+				nfsd_rpcb_unset_all();
 			return 0;
 		}
 		xlog(L_ERROR, "No active listeners added, not starting threads");
 		return 1;
 	}
 
-	return threads_doit(sock, cmd, 0, 0, pools, pool_threads, NULL,
+	ret = threads_doit(sock, cmd, 0, 0, pools, pool_threads, NULL,
 				minthreads, fh_key);
+
+	/*
+	 * The last thread destroys the serv, and a serv that never called
+	 * rpcb_create_local() leaves its entries behind.
+	 */
+	if (!ret && zero_threads && userspace_rpcbind_supported())
+		nfsd_rpcb_unset_all();
+
+	return ret;
 }
 
 /*
