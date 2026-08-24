@@ -337,6 +337,22 @@ interface to achieve the same goals.
 Most of the commands that query the NFS server can be run as an unprivileged
 user, but configuring the server typically requires an account with elevated
 privileges.
+.SS "rpcbind registration"
+.sp
+On a kernel that supports it, nfsdctl registers the NFS and NFSACL programs
+with the local rpcbind itself. The kernel made those calls while it held an
+internal mutex, where a slow rpcbind blocked every other NFSD netlink
+command. nfsdctl detects support and needs no configuration.
+.sp
+nfsdctl registers the listeners after it sets them, and it clears the
+entries when the last thread stops. A failed registration is not fatal. The
+server starts, but a client that looks the server up in rpcbind cannot find
+it. NFSv4 does not need rpcbind, and a v2 or v3 client that already knows
+the port does not need it either.
+.sp
+RDMA listeners are not registered, which matches what the kernel did.
+.sp
+lockd still registers NLM itself on every kernel.
 .SH "SEE ALSO"
 .sp
 nfs.conf(5), rpc.nfsd(8), rpc.mountd(8), exports(5), exportfs(8), rpc.rquotad(8), nfsstat(8), netconfig(5)
