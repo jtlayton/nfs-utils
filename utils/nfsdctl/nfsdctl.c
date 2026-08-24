@@ -500,6 +500,7 @@ static int nfsd_nl_family_setup(struct nl_sock *sock)
 static int getpolicy_handler(struct nl_msg *msg, void *arg)
 {
 	struct genlmsghdr *gnlh = nlmsg_data(nlmsg_hdr(msg));
+	int *max_nlattr = arg;
 	struct nlattr *attr;
 	int rem;
 
@@ -512,8 +513,8 @@ static int getpolicy_handler(struct nl_msg *msg, void *arg)
 				nla_for_each_nested(b, a, j) {
 					int idx = nla_type(b);
 
-					if (nfsd_threads_max_nlattr < idx)
-						nfsd_threads_max_nlattr = idx;
+					if (*max_nlattr < idx)
+						*max_nlattr = idx;
 				}
 			}
 		}
@@ -521,7 +522,8 @@ static int getpolicy_handler(struct nl_msg *msg, void *arg)
 	return NL_SKIP;
 }
 
-static int query_nfsd_nl_policy(struct nl_sock *sock)
+static int query_nfsd_nl_cmd_policy(struct nl_sock *sock, int cmd,
+				    int *max_nlattr)
 {
 	struct genlmsghdr *ghdr;
 	struct nlmsghdr *nlh;
@@ -549,7 +551,7 @@ static int query_nfsd_nl_policy(struct nl_sock *sock)
 	}
 
 	nla_put_u16(msg, CTRL_ATTR_FAMILY_ID, nfsd_nl_family);
-	nla_put_u32(msg, CTRL_ATTR_OP, NFSD_CMD_THREADS_SET);
+	nla_put_u32(msg, CTRL_ATTR_OP, cmd);
 
 	ret = nl_send_auto(sock, msg);
 	if (ret < 0)
@@ -559,7 +561,7 @@ static int query_nfsd_nl_policy(struct nl_sock *sock)
 	nl_cb_err(cb, NL_CB_CUSTOM, error_handler, &ret);
 	nl_cb_set(cb, NL_CB_FINISH, NL_CB_CUSTOM, finish_handler, &ret);
 	nl_cb_set(cb, NL_CB_ACK, NL_CB_CUSTOM, ack_handler, &ret);
-	nl_cb_set(cb, NL_CB_VALID, NL_CB_CUSTOM, getpolicy_handler, NULL);
+	nl_cb_set(cb, NL_CB_VALID, NL_CB_CUSTOM, getpolicy_handler, max_nlattr);
 
 	while (ret > 0)
 		nl_recvmsgs(sock, cb);
@@ -572,6 +574,12 @@ out_cb:
 out:
 	nlmsg_free(msg);
 	return ret;
+}
+
+static int query_nfsd_nl_policy(struct nl_sock *sock)
+{
+	return query_nfsd_nl_cmd_policy(sock, NFSD_CMD_THREADS_SET,
+					&nfsd_threads_max_nlattr);
 }
 
 static void status_usage(void)
