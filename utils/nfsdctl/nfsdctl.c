@@ -273,6 +273,28 @@ static void parse_version_get(struct genlmsghdr *gnlh)
 	}
 }
 
+/* Unpack one NFSD_A_SERVER_SOCK_ADDR nest. */
+static void parse_sock_nest(struct nlattr *attr, struct server_socket *sock)
+{
+	struct nlattr *a;
+	char *res;
+	int i;
+
+	nla_for_each_nested(a, attr, i) {
+		switch (nla_type(a)) {
+		case NFSD_A_SOCK_TRANSPORT_NAME:
+			res = strncpy(sock->name, nla_data(a),
+				      MAX_CLASS_NAME_LEN);
+			res[MAX_CLASS_NAME_LEN - 1] = '\0'; // just to be sure
+			break;
+		case NFSD_A_SOCK_ADDR:
+			memcpy(&sock->ss, nla_data(a), sizeof(sock->ss));
+			break;
+		}
+		sock->active = true;
+	}
+}
+
 static void parse_listener_get(struct genlmsghdr *gnlh)
 {
 	struct nlattr *attr;
@@ -283,24 +305,11 @@ static void parse_listener_get(struct genlmsghdr *gnlh)
 
 	nla_for_each_attr(attr, genlmsg_attrdata(gnlh, 0),
 			  genlmsg_attrlen(gnlh, 0), rem) {
-		struct nlattr *a;
-		char *res;
-		int i;
-
-		nla_for_each_nested(a, attr, i) {
-			switch (nla_type(a)) {
-			case NFSD_A_SOCK_TRANSPORT_NAME:
-				res = strncpy(nfsd_sockets[idx].name, nla_data(a),
-					      MAX_CLASS_NAME_LEN);
-				res[MAX_CLASS_NAME_LEN - 1] = '\0'; // just to be sure
-				break;
-			case NFSD_A_SOCK_ADDR:
-				memcpy(&nfsd_sockets[idx].ss, nla_data(a),
-					sizeof(nfsd_sockets[idx].ss));
-				break;
-			}
-			nfsd_sockets[idx].active = true;
-		}
+		if (nla_type(attr) != NFSD_A_SERVER_SOCK_ADDR)
+			continue;
+		if (idx >= MAX_NFSD_SOCKETS)
+			break;
+		parse_sock_nest(attr, &nfsd_sockets[idx]);
 		++idx;
 	}
 	nfsd_socket_count = idx;
