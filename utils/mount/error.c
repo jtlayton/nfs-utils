@@ -54,6 +54,21 @@ extern char *progname;
 static char errbuf[PATH_MAX];
 static char *erreob = &errbuf[PATH_MAX];
 
+/*
+ * Clamp a buffer position to the valid range for errbuf.
+ * snprintf() returns the number of bytes that would have been written,
+ * which can exceed the buffer size on truncation.  Using that unclamped
+ * value as an index into errbuf produces an out-of-bounds pointer.
+ */
+static int errbuf_clamp(int pos)
+{
+	if (pos < 0)
+		return 0;
+	if (pos >= PATH_MAX)
+		return PATH_MAX - 1;
+	return pos;
+}
+
 /* Convert RPC errors into strings */
 static int rpc_strerror(int spos)
 {
@@ -61,6 +76,8 @@ static int rpc_strerror(int spos)
 	int pos = 0, cf_errno = rpc_createerr.cf_error.re_errno;
 	char *ptr, *estr = clnt_sperrno(cf_stat);
 	char *tmp;
+
+	spos = errbuf_clamp(spos);
 
 	if (estr) {
 		if ((ptr = strchr(estr, ':')))
@@ -72,9 +89,9 @@ static int rpc_strerror(int spos)
 					_("System Error: %s"),
 						strerror(cf_errno));
 		else {
-			if (cf_errno) 
+			if (cf_errno)
 				pos = snprintf(tmp, (erreob - tmp),
-					_("RPC Error:%s; errno = %s"), 
+					_("RPC Error:%s; errno = %s"),
 					estr, strerror(cf_errno));
 			else
 				pos = snprintf(tmp, (erreob - tmp),
@@ -109,6 +126,7 @@ void rpc_mount_errors(char *server, int will_retry, int bg)
 				_("%s: mount to NFS server '%s' failed: "),
 					progname, server);
 
+	pos = errbuf_clamp(pos);
 	tmp = &errbuf[pos];
 	if (rpc_createerr.cf_stat == RPC_TIMEDOUT) {
 		if (will_retry)
@@ -119,6 +137,7 @@ void rpc_mount_errors(char *server, int will_retry, int bg)
 					_("timed out, giving up"));
 	} else {
 		pos += rpc_strerror(pos);
+		pos = errbuf_clamp(pos);
 		tmp = &errbuf[pos];
 		if (bg) {
 			if (will_retry)
@@ -164,6 +183,7 @@ void sys_mount_errors(char *server, int error, int will_retry, int bg)
 				_("%s: mount to NFS server '%s' failed: "),
 					progname, server);
 
+	pos = errbuf_clamp(pos);
 	tmp = &errbuf[pos];
 	if (error == ETIMEDOUT) {
 		if (will_retry)
