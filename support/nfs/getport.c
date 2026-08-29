@@ -456,9 +456,10 @@ char *nfs_sockaddr2universal(const struct sockaddr *sap)
 	int len = sizeof(struct sockaddr);
 
 	switch (sap->sa_family) {
-	case AF_LOCAL:
+	case AF_LOCAL: {
 		size_t path_len = len - offsetof(struct sockaddr_un, sun_path);
 		return strndup(sun->sun_path, path_len);
+	}
 	case AF_INET:
 		if (inet_ntop(AF_INET, (const void *)&sin->sin_addr.s_addr,
 					buf, (socklen_t)sizeof(buf)) == NULL)
