@@ -43,8 +43,9 @@ def read_info_file(path):
         with open(path) as info:
             lines = [line.split("=", 1) for line in info if "=" in line]
             res.update({key: int(val.strip()) for (key, val) in lines})
-    finally:
-        return res
+    except BaseException:
+        pass
+    return res
 
 
 class Xprt:
