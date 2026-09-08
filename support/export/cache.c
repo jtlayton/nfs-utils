@@ -1072,6 +1072,86 @@ static void write_xprtsec(char **bp, int *blen, struct exportent *ep)
 		qword_addint(bp, blen, p->info->number);
 }
 
+static int can_reexport_via_fsidnum(struct exportent *exp, struct statfs *st)
+{
+	if (st->f_type != 0x6969 /* NFS_SUPER_MAGIC */)
+		return 0;
+
+	return exp->e_reexport == REEXP_PREDEFINED_FSIDNUM ||
+	       exp->e_reexport == REEXP_AUTO_FSIDNUM;
+}
+
+/* What to hand the kernel for one (path, export) pair */
+struct export_attrs {
+	int		flags;
+	uint32_t	fsidnum;
+	int		sec_mask;	/* mask for the per-flavor flags */
+	int		sec_extra;	/* extra per-flavor flags */
+	char		uuid[16];
+	bool		have_uuid;
+};
+
+/*
+ * An upcall path may be a submount below the exported one, when the export
+ * is marked crossmnt.  Such a submount is a filesystem in its own right, so
+ * it must not inherit the parent's fsid= or uuid= - if it does, both end up
+ * claiming the same filehandles and the client sees ESTALE.
+ *
+ * Returns 0, or -1 with errno set if @path cannot be exported at all.
+ */
+static int export_attrs_build(struct export_attrs *ea, char *path,
+			      struct exportent *exp)
+{
+	int different_fs = strcmp(path, exp->e_path) != 0;
+	int flag_mask = different_fs ? ~NFSEXP_FSID : ~0;
+	int do_fsidnum = 0;
+
+	memset(ea, 0, sizeof(*ea));
+	ea->fsidnum = exp->e_fsid;
+
+	if (different_fs) {
+		struct statfs st;
+
+		if (nfsd_path_statfs(path, &st)) {
+			xlog(L_WARNING, "unable to statfs %s", path);
+			errno = EINVAL;
+			return -1;
+		}
+
+		/* A re-exported submount gets an fsid= of its own instead */
+		if (can_reexport_via_fsidnum(exp, &st)) {
+			do_fsidnum = 1;
+			flag_mask = ~0;
+		}
+	}
+
+	if (do_fsidnum) {
+		uint32_t search_fsidnum = 0;
+
+		if (exp->e_reexport != REEXP_NONE &&
+		    reexpdb_fsidnum_by_path(path, &search_fsidnum,
+			    exp->e_reexport == REEXP_AUTO_FSIDNUM) == 0) {
+			errno = EINVAL;
+			return -1;
+		}
+		ea->fsidnum = search_fsidnum;
+		ea->flags = exp->e_flags | NFSEXP_FSID;
+		ea->sec_extra = NFSEXP_FSID;
+	} else {
+		ea->flags = exp->e_flags & flag_mask;
+	}
+	ea->sec_mask = flag_mask;
+
+	if (exp->e_uuid && !different_fs) {
+		get_uuid(exp->e_uuid, 16, ea->uuid);
+		ea->have_uuid = true;
+	} else if ((exp->e_flags & flag_mask & NFSEXP_FSID) == 0) {
+		ea->have_uuid = uuid_by_path(path, 0, 16, ea->uuid);
+	}
+
+	return 0;
+}
+
 /*
  * Netlink-based svc_export cache support.
  *
@@ -2501,15 +2581,6 @@ static void cache_sunrpc_nl_process(void)
 		cache_nl_process_unix_gid();
 }
 
-static int can_reexport_via_fsidnum(struct exportent *exp, struct statfs *st)
-{
-	if (st->f_type != 0x6969 /* NFS_SUPER_MAGIC */)
-		return 0;
-
-	return exp->e_reexport == REEXP_PREDEFINED_FSIDNUM ||
-	       exp->e_reexport == REEXP_AUTO_FSIDNUM;
-}
-
 static int dump_to_cache(int f, char *buf, int blen, char *domain,
 			 char *path, struct exportent *exp, int ttl)
 {
@@ -2524,60 +2595,22 @@ static int dump_to_cache(int f, char *buf, int blen, char *domain,
 	qword_add(&bp, &blen, domain);
 	qword_add(&bp, &blen, path);
 	if (exp) {
-		int different_fs = strcmp(path, exp->e_path) != 0;
-		int flag_mask = different_fs ? ~NFSEXP_FSID : ~0;
-		int rc, do_fsidnum = 0;
-		uint32_t fsidnum = exp->e_fsid;
+		struct export_attrs ea;
 
-		if (different_fs) {
-			struct statfs st;
-
-			rc = nfsd_path_statfs(path, &st);
-			if (rc) {
-				xlog(L_WARNING, "unable to statfs %s", path);
-				errno = EINVAL;
-				return -1;
-			}
-
-			if (can_reexport_via_fsidnum(exp, &st)) {
-				do_fsidnum = 1;
-				flag_mask = ~0;
-			}
-		}
+		if (export_attrs_build(&ea, path, exp) < 0)
+			return -1;
 
 		qword_adduint(&bp, &blen, now + exp->e_ttl);
-
-		if (do_fsidnum) {
-			uint32_t search_fsidnum = 0;
-			if (exp->e_reexport != REEXP_NONE && reexpdb_fsidnum_by_path(path, &search_fsidnum,
-			    exp->e_reexport == REEXP_AUTO_FSIDNUM) == 0) {
-				errno = EINVAL;
-				return -1;
-			}
-			fsidnum = search_fsidnum;
-			qword_addint(&bp, &blen, exp->e_flags | NFSEXP_FSID);
-		} else {
-			qword_addint(&bp, &blen, exp->e_flags & flag_mask);
-		}
-
+		qword_addint(&bp, &blen, ea.flags);
 		qword_addint(&bp, &blen, exp->e_anonuid);
 		qword_addint(&bp, &blen, exp->e_anongid);
-		qword_addint(&bp, &blen, fsidnum);
+		qword_addint(&bp, &blen, ea.fsidnum);
 
 		write_fsloc(&bp, &blen, exp);
-		write_secinfo(&bp, &blen, exp, flag_mask, do_fsidnum ? NFSEXP_FSID : 0);
-		if (exp->e_uuid == NULL || different_fs) {
-			char u[16];
-			if ((exp->e_flags & flag_mask & NFSEXP_FSID) == 0 &&
-			    uuid_by_path(path, 0, 16, u)) {
-				qword_add(&bp, &blen, "uuid");
-				qword_addhex(&bp, &blen, u, 16);
-			}
-		} else {
-			char u[16];
-			get_uuid(exp->e_uuid, 16, u);
+		write_secinfo(&bp, &blen, exp, ea.sec_mask, ea.sec_extra);
+		if (ea.have_uuid) {
 			qword_add(&bp, &blen, "uuid");
-			qword_addhex(&bp, &blen, u, 16);
+			qword_addhex(&bp, &blen, ea.uuid, 16);
 		}
 		write_xprtsec(&bp, &blen, exp);
 		xlog(D_AUTH, "granted access to %s for %s",
