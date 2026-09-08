@@ -1500,7 +1500,8 @@ static int nfsd_nl_add_fsloc(struct nl_msg *msg, struct exportent *ep)
 	return 0;
 }
 
-static int nfsd_nl_add_secinfo(struct nl_msg *msg, struct exportent *ep)
+static int nfsd_nl_add_secinfo(struct nl_msg *msg, struct exportent *ep,
+			       struct export_attrs *ea)
 {
 	struct sec_entry *p;
 
@@ -1520,7 +1521,7 @@ static int nfsd_nl_add_secinfo(struct nl_msg *msg, struct exportent *ep)
 		if (nla_put_u32(msg, NFSD_A_AUTH_FLAVOR_PSEUDOFLAVOR,
 				p->flav->fnum) < 0 ||
 		    nla_put_u32(msg, NFSD_A_AUTH_FLAVOR_FLAGS,
-				p->flags) < 0)
+				(p->flags | ea->sec_extra) & ea->sec_mask) < 0)
 			return -1;
 		nla_nest_end(msg, sec);
 	}
@@ -1545,15 +1546,26 @@ static int nfsd_nl_add_xprtsec(struct nl_msg *msg, struct exportent *ep)
 	return 0;
 }
 
+/*
+ * Add one svc_export response.  @ea must be the attributes computed by
+ * export_attrs_build() for (@path, @exp), and is ignored when @exp is NULL.
+ * The only failure mode is a full message, so the caller can retry with a
+ * fresh one.
+ */
 static int nfsd_nl_add_export(struct nl_msg *msg, char *domain, char *path,
-			 struct exportent *exp, int ttl)
+			 struct exportent *exp, struct export_attrs *ea,
+			 int ttl)
 {
 	struct nlattr *nest;
 	time_t now = time(0);
-	char u[16];
+	uint64_t expiry;
 
+	/* A positive entry carries the export's own ttl */
+	if (exp)
+		ttl = (int)exp->e_ttl;
 	if (ttl <= 1)
 		ttl = default_ttl;
+	expiry = now + ttl;
 
 	nest = nla_nest_start(msg, NFSD_A_SVC_EXPORT_REQS_REQUESTS);
 	if (!nest)
@@ -1561,7 +1573,7 @@ static int nfsd_nl_add_export(struct nl_msg *msg, char *domain, char *path,
 
 	if (nla_put_string(msg, NFSD_A_SVC_EXPORT_CLIENT, domain) < 0 ||
 	    nla_put_string(msg, NFSD_A_SVC_EXPORT_PATH, path) < 0 ||
-	    nla_put_u64(msg, NFSD_A_SVC_EXPORT_EXPIRY, now + ttl) < 0)
+	    nla_put_u64(msg, NFSD_A_SVC_EXPORT_EXPIRY, expiry) < 0)
 		goto nla_failure;
 
 	if (!exp) {
@@ -1573,26 +1585,19 @@ static int nfsd_nl_add_export(struct nl_msg *msg, char *domain, char *path,
 		    nla_put_u32(msg, NFSD_A_SVC_EXPORT_ANON_GID,
 				exp->e_anongid) < 0 ||
 		    nla_put_u32(msg, NFSD_A_SVC_EXPORT_FLAGS,
-				exp->e_flags) < 0 ||
+				ea->flags) < 0 ||
 		    nla_put_s32(msg, NFSD_A_SVC_EXPORT_FSID,
-				exp->e_fsid) < 0)
+				ea->fsidnum) < 0)
 			goto nla_failure;
 
 		if (nfsd_nl_add_fsloc(msg, exp))
 			goto nla_failure;
 
-		if (exp->e_uuid) {
-			get_uuid(exp->e_uuid, 16, u);
-			if (nla_put(msg, NFSD_A_SVC_EXPORT_UUID,
-				    16, u) < 0)
-				goto nla_failure;
-		} else if (uuid_by_path(path, 0, 16, u)) {
-			if (nla_put(msg, NFSD_A_SVC_EXPORT_UUID,
-				    16, u) < 0)
-				goto nla_failure;
-		}
+		if (ea->have_uuid &&
+		    nla_put(msg, NFSD_A_SVC_EXPORT_UUID, 16, ea->uuid) < 0)
+			goto nla_failure;
 
-		if (nfsd_nl_add_secinfo(msg, exp))
+		if (nfsd_nl_add_secinfo(msg, exp, ea))
 			goto nla_failure;
 
 		if (nfsd_nl_add_xprtsec(msg, exp))
@@ -1713,6 +1718,7 @@ static enum export_result nl_add_export_req(struct nl_msg *msg, char *dom,
 	nfs_export *found = NULL;
 	struct exportent *epp = NULL;
 	struct exportent *junction = NULL;
+	struct export_attrs ea = {};
 	enum export_result res;
 	int ttl = 0;
 
@@ -1759,7 +1765,14 @@ static enum export_result nl_add_export_req(struct nl_msg *msg, char *dom,
 		}
 	}
 
-	if (nfsd_nl_add_export(msg, dom, path, epp, ttl) < 0)
+	if (epp && export_attrs_build(&ea, path, epp) < 0) {
+		xlog(L_WARNING, "Cannot export %s, possibly unsupported"
+		     " filesystem or fsid= required", path);
+		epp = NULL;
+		ttl = 0;
+	}
+
+	if (nfsd_nl_add_export(msg, dom, path, epp, &ea, ttl) < 0)
 		res = EXPORT_FULL;
 	else
 		res = epp ? EXPORT_ANSWERED : EXPORT_DENIED;
@@ -1786,7 +1799,7 @@ static enum export_result nl_export_negative(char *dom, char *path)
 	if (!msg)
 		return EXPORT_RETRY;
 
-	if (nfsd_nl_add_export(msg, dom, path, NULL, 0) < 0) {
+	if (nfsd_nl_add_export(msg, dom, path, NULL, NULL, 0) < 0) {
 		nlmsg_free(msg);
 		return EXPORT_RETRY;
 	}
