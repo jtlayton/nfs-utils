@@ -1406,13 +1406,15 @@ static int update_listeners(const char *str)
 				if (r4->sin_port != l4->sin_port ||
 				    memcmp(&r4->sin_addr, &l4->sin_addr, sizeof(l4->sin_addr)))
 					continue;
+				break;
 			case AF_INET6:
 				if (r6->sin6_port != l6->sin6_port ||
 				    memcmp(&r6->sin6_addr, &l6->sin6_addr, sizeof(l6->sin6_addr)) ||
 				    !ipv6_is_enabled())
 					continue;
+				break;
 			default:
-
+				break;
 			}
 			sock->active = (sign == '+');
 			found = true;
