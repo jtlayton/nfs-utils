@@ -2007,12 +2007,6 @@ static int autostart_func(struct nl_sock *sock, int argc, char ** argv)
 	thread_str = conf_get_list("nfsd", "threads");
 	pools = thread_str ? thread_str->cnt : 1;
 
-	/* if we fail to start one or more listeners, then cleanup by
-	 * starting 0 knfsd threads
-	 */
-	if (failed_listeners)
-		pools = 0;
-
 	threads = calloc(pools, sizeof(int));
 	if (!threads)
 		return -ENOMEM;
@@ -2038,7 +2032,7 @@ static int autostart_func(struct nl_sock *sock, int argc, char ** argv)
 	if (fh_key_file) {
 		ret = hash_fh_key_file(fh_key_file, fh_key);
 		if (ret)
-			return ret;
+			goto out;
 	}
 
 	lease = conf_get_num("nfsd", "lease-time", 0);
@@ -2049,6 +2043,12 @@ static int autostart_func(struct nl_sock *sock, int argc, char ** argv)
 		xlog(L_WARNING, "This kernel does not support dynamic threading. min-threads setting ignored.");
 		minthreads = -1;
 	}
+
+	/* if we fail to start one or more listeners, then cleanup by
+	 * starting 0 knfsd threads
+	 */
+	if (failed_listeners)
+		pools = 0;
 
 	ret = threads_doit(sock, NFSD_CMD_THREADS_SET, grace, lease, pools,
 			   threads, scope, minthreads, fh_key);
