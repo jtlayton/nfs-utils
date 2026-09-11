@@ -1493,8 +1493,14 @@ static int set_listeners(struct nl_sock *sock)
 			goto out;
 		}
 
-		nla_put(msg, NFSD_A_SOCK_ADDR, sizeof(sock->ss), &sock->ss);
-		nla_put_string(msg, NFSD_A_SOCK_TRANSPORT_NAME, sock->name);
+		if (nla_put(msg, NFSD_A_SOCK_ADDR, sizeof(sock->ss),
+			    &sock->ss) ||
+		    nla_put_string(msg, NFSD_A_SOCK_TRANSPORT_NAME,
+				   sock->name)) {
+			xlog(L_ERROR, "Too many listeners for one netlink message");
+			ret = 1;
+			goto out;
+		}
 		nla_nest_end(msg, a);
 	}
 
@@ -1502,9 +1508,16 @@ static int set_listeners(struct nl_sock *sock)
 	 * Take rpcbind registration off the kernel. It made those calls
 	 * under nfsd_mutex, where a slow rpcbind stalled every other NFSD
 	 * netlink operation.
+	 *
+	 * Losing this flag would leave the kernel owning rpcbind while this
+	 * program went on to rewrite the entries, so do not send without it.
 	 */
-	if (userspace_rpcbind)
-		nla_put_flag(msg, NFSD_A_SERVER_SOCK_USERSPACE_RPCBIND);
+	if (userspace_rpcbind &&
+	    nla_put_flag(msg, NFSD_A_SERVER_SOCK_USERSPACE_RPCBIND)) {
+		xlog(L_ERROR, "Unable to request rpcbind ownership");
+		ret = 1;
+		goto out;
+	}
 
 	ghdr = nlmsg_data(nlh);
 	ghdr->cmd = NFSD_CMD_LISTENER_SET;
