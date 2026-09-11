@@ -777,6 +777,38 @@ static struct addrinfo *lookup_client_addr(char *dom)
 }
 
 #define RETRY_SEC 120
+
+/*
+ * Cap on each retry queue.  A request is deferred when we cannot yet say
+ * whether its path or fsid is exportable, and the client picks the fsid out of
+ * the filehandle it sends, so the queues are reachable from the network: any
+ * export with an unmounted "mountpoint" makes lookup_fsid() defer every fsid it
+ * cannot match, invented ones included.  Queuing is only an optimisation - the
+ * kernel repeats the upcall when the client retries - so refusing to grow past
+ * this costs latency, not correctness.
+ */
+#define MAX_DELAYED 1024
+
+/*
+ * Has the queue holding @count entries hit the cap?  Warns once when it fills,
+ * and arms the warning again only once it has properly drained, so a queue
+ * sitting at the limit does not turn into a stream of log messages.
+ */
+static bool delayed_is_full(unsigned int count, bool *warned, const char *what)
+{
+	if (count < MAX_DELAYED / 2)
+		*warned = false;
+	if (count < MAX_DELAYED)
+		return false;
+
+	if (!*warned) {
+		*warned = true;
+		xlog(L_WARNING, "%s retry queue is full (%u), dropping requests;"
+		     " the kernel will ask again", what, MAX_DELAYED);
+	}
+	return true;
+}
+
 struct delayed {
 	char *message;
 	time_t last_attempt;
@@ -1008,8 +1040,10 @@ out:
 
 static void nfsd_fh(int f)
 {
+	static bool queue_full_warned;
 	struct delayed *d, **dp;
 	char inbuf[RPC_CHAN_BUF_SIZE];
+	unsigned int count = 0;
 	int blen;
 
 	blen = cache_read(f, inbuf, sizeof(inbuf));
@@ -1029,6 +1063,11 @@ static void nfsd_fh(int f)
 	 * We cannot tell the kernel to retry, so we have to
 	 * retry ourselves.
 	 */
+	for (dp = &delayed; *dp; dp = &(*dp)->next)
+		count++;
+	if (delayed_is_full(count, &queue_full_warned, "filehandle"))
+		return;
+
 	d = malloc(sizeof(*d));
 
 	if (!d)
@@ -1041,9 +1080,7 @@ static void nfsd_fh(int f)
 	d->f = f;
 	d->last_attempt = time(NULL);
 	d->next = NULL;
-	dp = &delayed;
-	while (*dp)
-		dp = &(*dp)->next;
+	/* the count above left dp at the tail */
 	*dp = d;
 }
 
@@ -2026,11 +2063,16 @@ static void delayed_export_remove(char *dom, char *path)
 
 static void nl_delay_export(char *dom, char *path)
 {
+	static bool queue_full_warned;
+	unsigned int count = 0;
 	struct delayed_export *d;
 
-	for (d = delayed_export; d; d = d->next)
+	for (d = delayed_export; d; d = d->next, count++)
 		if (!strcmp(d->client, dom) && !strcmp(d->path, path))
 			return;
+
+	if (delayed_is_full(count, &queue_full_warned, "export"))
+		return;
 
 	d = calloc(1, sizeof(*d));
 	if (!d)
@@ -2378,11 +2420,16 @@ static void delayed_expkey_remove(struct expkey_req *req)
 
 static void nl_delay_expkey(struct expkey_req *req)
 {
+	static bool queue_full_warned;
+	unsigned int count = 0;
 	struct delayed_expkey *d;
 
-	for (d = delayed_expkey; d; d = d->next)
+	for (d = delayed_expkey; d; d = d->next, count++)
 		if (delayed_expkey_matches(d, req))
 			return;
+
+	if (delayed_is_full(count, &queue_full_warned, "fsid"))
+		return;
 
 	d = calloc(1, sizeof(*d));
 	if (!d)
