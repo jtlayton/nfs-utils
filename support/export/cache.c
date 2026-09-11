@@ -2349,15 +2349,39 @@ static void delayed_expkey_flush(void)
 	}
 }
 
+/* Does @d hold the deferred form of @req? */
+static bool delayed_expkey_matches(struct delayed_expkey *d,
+				   struct expkey_req *req)
+{
+	return d->fsidtype == req->fsidtype &&
+	       d->fsidlen == req->fsidlen &&
+	       !strcmp(d->client, req->client) &&
+	       !memcmp(d->fsid, req->fsid, req->fsidlen);
+}
+
+/* Forget any deferred form of @req; it has been answered */
+static void delayed_expkey_remove(struct expkey_req *req)
+{
+	struct delayed_expkey **dp = &delayed_expkey;
+
+	while (*dp) {
+		struct delayed_expkey *d = *dp;
+
+		if (delayed_expkey_matches(d, req)) {
+			*dp = d->next;
+			delayed_expkey_free(d);
+			return;
+		}
+		dp = &d->next;
+	}
+}
+
 static void nl_delay_expkey(struct expkey_req *req)
 {
 	struct delayed_expkey *d;
 
 	for (d = delayed_expkey; d; d = d->next)
-		if (d->fsidtype == req->fsidtype &&
-		    d->fsidlen == req->fsidlen &&
-		    !strcmp(d->client, req->client) &&
-		    !memcmp(d->fsid, req->fsid, req->fsidlen))
+		if (delayed_expkey_matches(d, req))
 			return;
 
 	d = calloc(1, sizeof(*d));
@@ -2460,6 +2484,11 @@ static enum expkey_result nl_expkey_one(struct expkey_req *req)
 	return res;
 }
 
+/*
+ * Answer [@start, @end) one at a time.  Building the batch may already have
+ * deferred some of these, so an entry that resolves this time has to come back
+ * off the retry queue, or it gets answered a second time.
+ */
 static void nl_expkey_singly(struct expkey_req *reqs, int start, int end)
 {
 	int i;
@@ -2467,6 +2496,8 @@ static void nl_expkey_singly(struct expkey_req *reqs, int start, int end)
 	for (i = start; i < end; i++)
 		if (nl_expkey_one(&reqs[i]) == EXPKEY_RETRY)
 			nl_delay_expkey(&reqs[i]);
+		else
+			delayed_expkey_remove(&reqs[i]);
 }
 
 /*
