@@ -3939,6 +3939,29 @@ cache_wait_for_workers(char *prog)
 	}
 }
 
+/*
+ * Replace a command socket inherited across fork().  Returns @old if a new one
+ * cannot be had; sharing it is worse than having one, but not by as much as
+ * having none.
+ */
+static struct nl_sock *nl_cmd_sock_reopen(struct nl_sock *old)
+{
+	struct nl_sock *sock;
+
+	if (!old)
+		return NULL;
+
+	sock = nl_sock_setup();
+	if (!sock) {
+		xlog(L_WARNING, "%s: cannot reopen netlink command socket,"
+		     " sharing the inherited one", __func__);
+		return old;
+	}
+
+	nl_socket_free(old);
+	return sock;
+}
+
 /* Fork num_threads worker children and wait for them */
 int
 cache_fork_workers(char *prog, int num_threads)
@@ -3961,11 +3984,21 @@ cache_fork_workers(char *prog, int num_threads)
 			/* worker child */
 
 			/*
+			 * A command socket carries a reply back to the process
+			 * that sent the request, so it cannot be shared.  Every
+			 * worker inherits the same fd and the same copied
+			 * sequence counters, and two of them mid-round-trip
+			 * will take each other's ack.
+			 */
+			nfsd_nl_cmd_sock = nl_cmd_sock_reopen(nfsd_nl_cmd_sock);
+			sunrpc_nl_cmd_sock =
+				nl_cmd_sock_reopen(sunrpc_nl_cmd_sock);
+
+			/*
 			 * cache_open() drains the netlink downcalls before we
 			 * get here, so anything it deferred is now on the retry
 			 * queues of every worker.  Let the first worker own
-			 * those, or they get answered once per worker over the
-			 * shared command socket.
+			 * those, or they get answered once per worker.
 			 */
 			if (i > 0) {
 				delayed_export_flush();
