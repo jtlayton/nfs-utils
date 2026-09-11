@@ -1145,7 +1145,9 @@ struct export_attrs {
  * it must not inherit the parent's fsid= or uuid= - if it does, both end up
  * claiming the same filehandles and the client sees ESTALE.
  *
- * Returns 0, or -1 with errno set if @path cannot be exported at all.
+ * Returns 0, or -1 with errno set: EAGAIN if we could not work the attributes
+ * out this time and the caller should ask again, anything else if @path is
+ * genuinely not exportable.
  */
 static int export_attrs_build(struct export_attrs *ea, char *path,
 			      struct exportent *exp)
@@ -1161,8 +1163,24 @@ static int export_attrs_build(struct export_attrs *ea, char *path,
 		struct statfs st;
 
 		if (nfsd_path_statfs(path, &st)) {
+			int err = errno;
+
 			xlog(L_WARNING, "unable to statfs %s", path);
-			errno = EINVAL;
+			/*
+			 * A strange error - the ETIMEDOUT a "softerr" NFS
+			 * re-export gives, or the EIO a plain "soft" one gives
+			 * - leaves us unable to say whether the path is
+			 * exportable, so ask again later.  Two errors are not
+			 * of that kind: ENOSYS, because a filesystem with no
+			 * statfs will never answer, and 0, which means a
+			 * chrooted worker thread ran the statfs and we never
+			 * saw its errno - is_mountpoint() callers read that as
+			 * definitive too.
+			 */
+			if (err != 0 && err != ENOSYS && !path_lookup_error(err))
+				errno = EAGAIN;
+			else
+				errno = EINVAL;
 			return -1;
 		}
 
@@ -1179,7 +1197,13 @@ static int export_attrs_build(struct export_attrs *ea, char *path,
 		if (exp->e_reexport != REEXP_NONE &&
 		    reexpdb_fsidnum_by_path(path, &search_fsidnum,
 			    exp->e_reexport == REEXP_AUTO_FSIDNUM) == 0) {
-			errno = EINVAL;
+			/*
+			 * fsidnum_get_by_path() answers the same way whether
+			 * fsidd is unreachable, gave us nonsense, or has no
+			 * fsid for this path.  A restarting fsidd must not
+			 * deny a working re-export, so ask again later.
+			 */
+			errno = EAGAIN;
 			return -1;
 		}
 		ea->fsidnum = search_fsidnum;
@@ -1802,6 +1826,10 @@ static enum export_result nl_add_export_req(struct nl_msg *msg, char *dom,
 	}
 
 	if (epp && export_attrs_build(&ea, path, epp) < 0) {
+		if (errno == EAGAIN) {
+			res = EXPORT_RETRY;
+			goto out;
+		}
 		xlog(L_WARNING, "Cannot export %s, possibly unsupported"
 		     " filesystem or fsid= required", path);
 		epp = NULL;
@@ -3582,6 +3610,13 @@ static void nfsd_export(int f)
 				      NULL, 60);
 		} else if (dump_to_cache(f, buf, sizeof(buf), dom, path,
 					 &found->m_export, 0) < 0) {
+			/*
+			 * We could not work out the attributes this time.
+			 * Leave the request for the next upcall rather than
+			 * denying an export that is probably fine.
+			 */
+			if (errno == EAGAIN)
+				goto out;
 			xlog(L_WARNING,
 			     "Cannot export %s, possibly unsupported filesystem"
 			     " or fsid= required", path);
