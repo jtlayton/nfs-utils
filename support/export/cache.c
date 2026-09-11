@@ -3379,6 +3379,12 @@ static struct exportent *create_junction_exportent(struct exportent *parent,
 {
 	static struct exportent *eep;
 
+	if (strlen(junction) >= sizeof(eep->e_path)) {
+		xlog(L_ERROR, "%s: junction path %s too long", __func__,
+		     junction);
+		return NULL;
+	}
+
 	eep = (struct exportent *)malloc(sizeof(*eep));
 	if (eep == NULL)
 		goto out_nomem;
