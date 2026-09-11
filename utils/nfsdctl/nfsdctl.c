@@ -1425,8 +1425,16 @@ static int update_listeners(const char *str)
 			break;
 		}
 		if (!found && sign == '+') {
-			struct server_socket *sock = &nfsd_sockets[nfsd_socket_count];
+			struct server_socket *sock;
 
+			if (nfsd_socket_count >= MAX_NFSD_SOCKETS) {
+				xlog(L_ERROR, "Too many listeners, max is %d",
+				     MAX_NFSD_SOCKETS);
+				free(buf);
+				return -ENOSPC;
+			}
+
+			sock = &nfsd_sockets[nfsd_socket_count];
 			memcpy(&sock->ss, res->ai_addr, res->ai_addrlen);
 			strncpy(sock->name, netid, MAX_CLASS_NAME_LEN);
 			sock->name[MAX_CLASS_NAME_LEN - 1] = '\0';
