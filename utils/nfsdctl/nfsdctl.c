@@ -2052,6 +2052,13 @@ static int autostart_func(struct nl_sock *sock, int argc, char ** argv)
 
 	ret = threads_doit(sock, NFSD_CMD_THREADS_SET, grace, lease, pools,
 			   threads, scope, minthreads, fh_key);
+
+	/*
+	 * That teardown destroys the serv, and a serv that never called
+	 * rpcb_create_local() leaves its entries behind.
+	 */
+	if (!ret && !pools && userspace_rpcbind_supported())
+		nfsd_rpcb_unset_all();
 out:
 	free(threads);
 	return ret;
