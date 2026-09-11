@@ -87,6 +87,9 @@ struct server_socket nfsd_sockets[MAX_NFSD_SOCKETS];
 static int nfsd_rpcb_prog_count;
 static struct nfsd_rpcb_prog nfsd_rpcb_progs[MAX_RPCB_PROGS];
 
+/* Did a LISTENER_SET reply actually reach parse_listener_set()? */
+static bool nfsd_rpcb_reply_seen;
+
 const char *taskname;
 
 static const struct option help_only_options[] = {
@@ -361,6 +364,7 @@ static void parse_listener_set(struct genlmsghdr *gnlh)
 		}
 	}
 	nfsd_socket_count = idx;
+	nfsd_rpcb_reply_seen = true;
 }
 
 static void parse_threads_get(struct genlmsghdr *gnlh)
@@ -1448,6 +1452,8 @@ static int set_listeners(struct nl_sock *sock)
 	struct nl_cb *cb;
 	int i, ret;
 
+	nfsd_rpcb_reply_seen = false;
+
 	if (!nfsd_nl_family_setup(sock))
 		return 1;
 
@@ -1523,11 +1529,19 @@ static int set_listeners(struct nl_sock *sock)
 
 	/*
 	 * recv_handler() filled nfsd_sockets and nfsd_rpcb_progs from the
-	 * reply, which names only the listeners that came up.
+	 * reply, which names only the listeners that came up. Without that
+	 * reply there is nothing to register, and registering anyway would
+	 * clear the entries the kernel installed and put nothing back.
 	 */
-	if (!ret && userspace_rpcbind)
-		nfsd_rpcb_register(nfsd_sockets, nfsd_socket_count,
-				   nfsd_rpcb_progs, nfsd_rpcb_prog_count);
+	if (!ret && userspace_rpcbind) {
+		if (nfsd_rpcb_reply_seen)
+			nfsd_rpcb_register(nfsd_sockets, nfsd_socket_count,
+					   nfsd_rpcb_progs,
+					   nfsd_rpcb_prog_count);
+		else
+			xlog(L_WARNING,
+			     "no rpcbind info in the listener_set reply. Leaving the rpcbind registrations alone.");
+	}
 out_cb:
 	nl_cb_put(cb);
 out:
