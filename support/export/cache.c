@@ -3750,7 +3750,8 @@ static void nfsd_export(int f)
 			 */
 			if (errno == EAGAIN)
 				goto out;
-			xlog(L_WARNING,
+			xlog(export_is_explicit(found, path) ? L_WARNING
+							     : D_GENERAL,
 			     "Cannot export %s, possibly unsupported filesystem"
 			     " or fsid= required", path);
 			dump_to_cache(f, buf, sizeof(buf), dom, path, NULL, 0);
