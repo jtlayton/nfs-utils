@@ -612,6 +612,32 @@ try_proc:
 	return 1;
 }
 
+/*
+ * mountd passes riomode= and wiomode= to the kernel only over netlink, and
+ * only to a kernel that takes them.  @test_result is from can_test().
+ */
+static void
+validate_iomode(nfs_export *exp, const char *path, int test_result)
+{
+	static int supported = -1;
+
+	if (exp->m_export.e_riomode == NFSD_IO_UNSET &&
+	    exp->m_export.e_wiomode == NFSD_IO_UNSET)
+		return;
+
+	if (supported < 0)
+		supported = test_result == 2 ?
+			    nfsd_export_iomode_supported() : 0;
+	/* nfsd is not loaded, so there is no telling yet */
+	if (supported < 0)
+		return;
+
+	if (!supported)
+		xlog(L_WARNING, "%s: ignoring riomode= and wiomode=: %s", path,
+		     no_netlink ? "no-netlink is set" :
+				  "not supported by the running kernel");
+}
+
 static void
 validate_export(nfs_export *exp)
 {
@@ -639,6 +665,8 @@ validate_export(nfs_export *exp)
 	test_result = can_test();
 	if (!test_result)
 		return;
+
+	validate_iomode(exp, path, test_result);
 
 	/*
 	 * When netlink is available, skip the export_test() probe.
@@ -836,6 +864,12 @@ dump(int verbose, int export_format)
 				c = dumpopt(c, "no_acl");
 			if (ep->e_flags & NFSEXP_PNFS)
 				c = dumpopt(c, "pnfs");
+			if (ep->e_riomode != NFSD_IO_UNSET)
+				c = dumpopt(c, "riomode=%s",
+					    iomode_name(ep->e_riomode));
+			if (ep->e_wiomode != NFSD_IO_UNSET)
+				c = dumpopt(c, "wiomode=%s",
+					    iomode_name(ep->e_wiomode));
 			if (ep->e_flags & NFSEXP_FSID)
 				c = dumpopt(c, "fsid=%d", ep->e_fsid);
 			if (ep->e_uuid)
