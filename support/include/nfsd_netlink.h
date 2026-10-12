@@ -51,10 +51,22 @@ enum nfsd_xprtsec_mode {
 };
 
 /*
- * Constraints that apply to an rpcbind registration.
+ * Constraints that apply to an rpcbind registration. no-udp means the kernel
+ * would not have registered this program and version over UDP, so the caller
+ * must skip the udp and udp6 netids for it.
  */
 enum nfsd_rpcbind_flags {
 	NFSD_RPCBIND_FLAGS_NO_UDP = 1,
+};
+
+/*
+ * NFS READ/WRITE I/O mode. These values match the global io_cache_read and
+ * io_cache_write debugfs settings.
+ */
+enum nfsd_io_mode {
+	NFSD_IO_MODE_BUFFERED,
+	NFSD_IO_MODE_DONTCACHE,
+	NFSD_IO_MODE_DIRECT,
 };
 
 enum {
@@ -183,6 +195,8 @@ enum {
 	NFSD_A_SVC_EXPORT_XPRTSEC,
 	NFSD_A_SVC_EXPORT_FLAGS,
 	NFSD_A_SVC_EXPORT_FSID,
+	NFSD_A_SVC_EXPORT_READ_IOMODE,
+	NFSD_A_SVC_EXPORT_WRITE_IOMODE,
 
 	__NFSD_A_SVC_EXPORT_MAX,
 	NFSD_A_SVC_EXPORT_MAX = (__NFSD_A_SVC_EXPORT_MAX - 1)

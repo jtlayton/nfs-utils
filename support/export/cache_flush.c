@@ -115,6 +115,116 @@ static int cache_nl_flush(void)
 	return 0;
 }
 
+static int nl_policy_done_cb(struct nl_msg *UNUSED(msg), void *arg)
+{
+	int *done = arg;
+
+	*done = 1;
+	return NL_STOP;
+}
+
+static int nl_policy_error_cb(struct sockaddr_nl *UNUSED(nla),
+			      struct nlmsgerr *UNUSED(nlerr), void *arg)
+{
+	int *done = arg;
+
+	*done = 1;
+	return NL_STOP;
+}
+
+/*
+ * The dump covers SET_REQS's own policy and every nested policy it
+ * references.  The svc_export attribute set is by far the largest of them,
+ * so the highest attribute index seen is its maximum.
+ */
+static int nl_policy_valid_cb(struct nl_msg *msg, void *arg)
+{
+	struct genlmsghdr *gnlh = nlmsg_data(nlmsg_hdr(msg));
+	int *max_nlattr = arg;
+	struct nlattr *attr, *pol, *a;
+	int rem, prem, arem;
+
+	nla_for_each_attr(attr, genlmsg_attrdata(gnlh, 0),
+			  genlmsg_attrlen(gnlh, 0), rem) {
+		if (nla_type(attr) != CTRL_ATTR_POLICY)
+			continue;
+		nla_for_each_nested(pol, attr, prem) {
+			nla_for_each_nested(a, pol, arem) {
+				if (*max_nlattr < nla_type(a))
+					*max_nlattr = nla_type(a);
+			}
+		}
+	}
+	return NL_OK;
+}
+
+/**
+ * nfsd_export_iomode_supported - does the kernel take per-export I/O modes?
+ *
+ * The kernel refuses a whole svc_export entry over one attribute it does
+ * not know, so ask which ones its SET_REQS policy accepts.
+ *
+ * Returns 1 if it accepts riomode/wiomode, 0 if not or if that cannot be
+ * found out, or -1 if the nfsd netlink family is not registered, as when
+ * nfsd is not loaded.
+ */
+int nfsd_export_iomode_supported(void)
+{
+	struct nl_msg *msg = NULL;
+	struct nl_cb *cb = NULL;
+	struct nl_sock *sock;
+	int max_nlattr = 0;
+	int supported = 0;
+	int family, ret;
+	int done = 0;
+
+	sock = nl_socket_alloc();
+	if (!sock)
+		return 0;
+	if (genl_connect(sock))
+		goto out;
+
+	family = genl_ctrl_resolve(sock, NFSD_FAMILY_NAME);
+	if (family < 0) {
+		supported = -1;
+		goto out;
+	}
+
+	msg = nlmsg_alloc();
+	if (!msg ||
+	    !genlmsg_put(msg, NL_AUTO_PID, NL_AUTO_SEQ, GENL_ID_CTRL, 0,
+			 NLM_F_DUMP, CTRL_CMD_GETPOLICY, 0) ||
+	    nla_put_u16(msg, CTRL_ATTR_FAMILY_ID, family) < 0 ||
+	    nla_put_u32(msg, CTRL_ATTR_OP, NFSD_CMD_SVC_EXPORT_SET_REQS) < 0)
+		goto out;
+
+	cb = nl_cb_alloc(NL_CB_DEFAULT);
+	if (!cb)
+		goto out;
+
+	nl_cb_set(cb, NL_CB_VALID, NL_CB_CUSTOM, nl_policy_valid_cb,
+		  &max_nlattr);
+	nl_cb_set(cb, NL_CB_FINISH, NL_CB_CUSTOM, nl_policy_done_cb, &done);
+	nl_cb_err(cb, NL_CB_CUSTOM, nl_policy_error_cb, &done);
+
+	ret = nl_send_auto(sock, msg);
+	while (ret >= 0 && !done)
+		ret = nl_recvmsgs(sock, cb);
+
+	/* An error mid-dump leaves max_nlattr partial: trust only a full one */
+	if (ret < 0)
+		xlog(D_NETLINK, "nfsd policy query failed: %s",
+		     nl_geterror(ret));
+	else
+		supported = max_nlattr >= NFSD_A_SVC_EXPORT_WRITE_IOMODE;
+	xlog(D_NETLINK, "highest svc_export attribute is %d", max_nlattr);
+out:
+	nl_cb_put(cb);
+	nlmsg_free(msg);
+	nl_socket_free(sock);
+	return supported;
+}
+
 static void cache_proc_flush(void)
 {
 	int c;

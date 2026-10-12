@@ -1287,6 +1287,9 @@ static struct nl_sock *nfsd_nl_notify_sock;	/* multicast notifications */
 static struct nl_sock *nfsd_nl_cmd_sock;	/* GET_REQS / SET_REQS commands */
 static int nfsd_nl_family;
 
+/* Does the running kernel accept riomode/wiomode in SET_REQS? */
+static bool nfsd_nl_iomode_ok;
+
 #define NL_BUFFER_SIZE	65536
 
 struct export_req {
@@ -1375,9 +1378,14 @@ out_free_cmd:
 
 static int cache_nfsd_nl_open(void)
 {
-	return cache_genl_open(NFSD_FAMILY_NAME, NFSD_MCGRP_EXPORTD,
-			       &nfsd_nl_cmd_sock, &nfsd_nl_notify_sock,
-			       &nfsd_nl_family);
+	int ret;
+
+	ret = cache_genl_open(NFSD_FAMILY_NAME, NFSD_MCGRP_EXPORTD,
+			      &nfsd_nl_cmd_sock, &nfsd_nl_notify_sock,
+			      &nfsd_nl_family);
+	if (ret == 0)
+		nfsd_nl_iomode_ok = nfsd_export_iomode_supported() > 0;
+	return ret;
 }
 
 static int nl_seq_check_handler(struct nl_msg *UNUSED(msg), void *UNUSED(arg))
@@ -1643,6 +1651,40 @@ static int nfsd_nl_add_xprtsec(struct nl_msg *msg, struct exportent *ep)
 	return 0;
 }
 
+static int nfsd_nl_add_iomode(struct nl_msg *msg, struct exportent *ep)
+{
+	static bool warned;
+
+	if (ep->e_riomode == NFSD_IO_UNSET && ep->e_wiomode == NFSD_IO_UNSET)
+		return 0;
+
+	/*
+	 * A kernel without per-export I/O modes would refuse the entry,
+	 * leaving the export unmountable.  Export it with the server's
+	 * global I/O modes instead.
+	 */
+	if (!nfsd_nl_iomode_ok) {
+		if (!warned) {
+			xlog(L_WARNING, "%s: kernel does not support riomode= "
+			     "or wiomode=, ignoring", ep->e_path);
+			warned = true;
+		}
+		return 0;
+	}
+
+	if (ep->e_riomode != NFSD_IO_UNSET &&
+	    nla_put_u32(msg, NFSD_A_SVC_EXPORT_READ_IOMODE,
+			ep->e_riomode) < 0)
+		return -1;
+
+	if (ep->e_wiomode != NFSD_IO_UNSET &&
+	    nla_put_u32(msg, NFSD_A_SVC_EXPORT_WRITE_IOMODE,
+			ep->e_wiomode) < 0)
+		return -1;
+
+	return 0;
+}
+
 /*
  * Add one svc_export response.  @ea must be the attributes computed by
  * export_attrs_build() for (@path, @exp), and is ignored when @exp is NULL.
@@ -1698,6 +1740,9 @@ static int nfsd_nl_add_export(struct nl_msg *msg, char *domain, char *path,
 			goto nla_failure;
 
 		if (nfsd_nl_add_xprtsec(msg, exp))
+			goto nla_failure;
+
+		if (nfsd_nl_add_iomode(msg, exp))
 			goto nla_failure;
 	}
 
@@ -3255,6 +3300,20 @@ static void cache_sunrpc_nl_process(void)
 		cache_nl_process_unix_gid();
 }
 
+/* The kernel takes per-export I/O modes only over netlink */
+static void warn_iomode_unsupported(struct exportent *exp)
+{
+	static bool warned;
+
+	if (warned || (exp->e_riomode == NFSD_IO_UNSET &&
+		       exp->e_wiomode == NFSD_IO_UNSET))
+		return;
+
+	xlog(L_WARNING, "%s: riomode= and wiomode= need the netlink "
+	     "export interface, ignoring", exp->e_path);
+	warned = true;
+}
+
 static int dump_to_cache(int f, char *buf, int blen, char *domain,
 			 char *path, struct exportent *exp, int ttl)
 {
@@ -3287,6 +3346,7 @@ static int dump_to_cache(int f, char *buf, int blen, char *domain,
 			qword_addhex(&bp, &blen, ea.uuid, 16);
 		}
 		write_xprtsec(&bp, &blen, exp);
+		warn_iomode_unsupported(exp);
 		xlog(D_AUTH, "granted access to %s for %s",
 		     path, *domain == '$' ? domain+1 : domain);
 	} else {
