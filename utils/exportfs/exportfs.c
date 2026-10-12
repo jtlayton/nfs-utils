@@ -614,6 +614,32 @@ try_proc:
 	return 1;
 }
 
+/*
+ * mountd passes read_io= and write_io= to the kernel only over netlink, and
+ * only to a kernel that takes them.  @test_result is from can_test().
+ */
+static void
+validate_iomode(nfs_export *exp, const char *path, int test_result)
+{
+	static int supported = -1;
+
+	if (exp->m_export.e_read_io == NFSD_IO_UNSET &&
+	    exp->m_export.e_write_io == NFSD_IO_UNSET)
+		return;
+
+	if (supported < 0)
+		supported = test_result == 2 ?
+			    nfsd_export_iomode_supported() : 0;
+	/* nfsd is not loaded, so there is no telling yet */
+	if (supported < 0)
+		return;
+
+	if (!supported)
+		xlog(L_WARNING, "%s: ignoring read_io= and write_io=: %s", path,
+		     no_netlink ? "no-netlink is set" :
+				  "not supported by the running kernel");
+}
+
 static void
 validate_export(nfs_export *exp)
 {
@@ -641,6 +667,8 @@ validate_export(nfs_export *exp)
 	test_result = can_test();
 	if (!test_result)
 		return;
+
+	validate_iomode(exp, path, test_result);
 
 	/*
 	 * When netlink is available, skip the export_test() probe.
@@ -838,6 +866,12 @@ dump(int verbose, int export_format)
 				c = dumpopt(c, "no_acl");
 			if (ep->e_flags & NFSEXP_PNFS)
 				c = dumpopt(c, "pnfs");
+			if (ep->e_read_io != NFSD_IO_UNSET)
+				c = dumpopt(c, "read_io=%s",
+					    iomode_name(ep->e_read_io));
+			if (ep->e_write_io != NFSD_IO_UNSET)
+				c = dumpopt(c, "write_io=%s",
+					    iomode_name(ep->e_write_io));
 			if (ep->e_flags & NFSEXP_FSID)
 				c = dumpopt(c, "fsid=%d", ep->e_fsid);
 			if (ep->e_uuid)

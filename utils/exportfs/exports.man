@@ -478,6 +478,28 @@ devices. The default can be explicitly requested with the
 option.
 
 .TP
+.IR read_io= buffered|dontcache|direct
+This option selects the I/O mode the server uses for NFS READ requests
+to this export:
+.I buffered
+uses the page cache,
+.I dontcache
+uses the page cache but drops the data behind on completion, and
+.I direct
+uses direct I/O.
+If the option is not specified, the export follows the server's global
+setting, which defaults to
+.IR buffered .
+If the kernel does not support per-export I/O modes, the option is
+ignored and a warning is logged.
+
+.TP
+.IR write_io= buffered|dontcache|direct
+This option selects the I/O mode the server uses for NFS WRITE requests
+to this export, with the same values and default as
+.IR read_io= .
+
+.TP
 .IR security_label
 With this option set, clients using NFSv4.2 or higher will be able to
 set and retrieve security labels (such as those used by SELinux).  This

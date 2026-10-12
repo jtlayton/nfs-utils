@@ -79,6 +79,7 @@ struct xprtsec_entry {
  * Per-export I/O modes for read_io=/write_io=. Values must match the
  * kernel's NFSD_IO_* enum (fs/nfsd/nfsd.h). NFSD_IO_UNSET means no
  * option was given; the export follows the server's global setting.
+ * It matches the kernel's NFSD_IO_DEFAULT value.
  */
 #define NFSD_IO_BUFFERED	0
 #define NFSD_IO_DONTCACHE	1
