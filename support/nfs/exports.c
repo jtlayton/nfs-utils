@@ -962,20 +962,33 @@ syntaxerr(char *msg)
 	xlog(L_ERROR, "%s:%d: syntax error: %s",
 			efname, efp?efp->x_line:0, msg);
 }
+
+static struct nfsd_export_policy kernel_policy;
+static int kernel_policy_cached;
+
+/*
+ * A program that can ask the kernel over netlink hands its answer in here,
+ * so that get_export_features() need not read /proc.
+ */
+void set_export_features(const struct nfsd_export_policy *pol)
+{
+	kernel_policy = *pol;
+	kernel_policy_cached = 1;
+}
+
 struct nfsd_export_policy *get_export_features(void)
 {
 	static char *path = "/proc/fs/nfsd/export_features";
-	static struct nfsd_export_policy pol;
-	static int cached = 0;
+	struct nfsd_export_policy *pol = &kernel_policy;
 	char buf[50];
 	int c;
 	int fd;
 
-	if (cached)
-		return &pol;
+	if (kernel_policy_cached)
+		return pol;
 
-	pol.flags = NFSEXP_OLDFLAGS;
-	pol.secinfo_flags = NFSEXP_OLD_SECINFO_FLAGS;
+	pol->flags = NFSEXP_OLDFLAGS;
+	pol->secinfo_flags = NFSEXP_OLD_SECINFO_FLAGS;
 
 	fd = open(path, O_RDONLY);
 	if (fd == -1)
@@ -985,13 +998,13 @@ struct nfsd_export_policy *get_export_features(void)
 	if (c == -1)
 		goto err;
 	buf[c] = 0;
-	c = sscanf(buf, "%x %x", &pol.flags, &pol.secinfo_flags);
+	c = sscanf(buf, "%x %x", &pol->flags, &pol->secinfo_flags);
 	if (c != 2)
 		goto err;
 good:
-	cached = 1;
-	return &pol;
+	kernel_policy_cached = 1;
+	return pol;
 err:
 	xlog(L_WARNING, "unexpected error reading %s", path);
-	return &pol;
+	return pol;
 }

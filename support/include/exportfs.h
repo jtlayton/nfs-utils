@@ -173,6 +173,10 @@ struct nfsd_export_policy {
 };
 
 struct nfsd_export_policy *get_export_features(void);
+void set_export_features(const struct nfsd_export_policy *pol);
+int nfsd_export_policy_query(struct nfsd_export_policy *pol);
+void nfsd_nl_load_export_features(void);
+
 void fix_pseudoflavor_flags(struct exportent *ep);
 char *exportent_realpath(struct exportent *eep);
 int export_test(struct exportent *eep, int with_fsid);

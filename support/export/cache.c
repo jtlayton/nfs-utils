@@ -1375,9 +1375,14 @@ out_free_cmd:
 
 static int cache_nfsd_nl_open(void)
 {
-	return cache_genl_open(NFSD_FAMILY_NAME, NFSD_MCGRP_EXPORTD,
-			       &nfsd_nl_cmd_sock, &nfsd_nl_notify_sock,
-			       &nfsd_nl_family);
+	int ret;
+
+	ret = cache_genl_open(NFSD_FAMILY_NAME, NFSD_MCGRP_EXPORTD,
+			      &nfsd_nl_cmd_sock, &nfsd_nl_notify_sock,
+			      &nfsd_nl_family);
+	if (ret == 0)
+		nfsd_nl_load_export_features();
+	return ret;
 }
 
 static int nl_seq_check_handler(struct nl_msg *UNUSED(msg), void *UNUSED(arg))

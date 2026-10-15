@@ -255,6 +255,30 @@ AC_ARG_ENABLE(nfsdcltrack,
 PKG_CHECK_MODULES(LIBNL3, libnl-3.0 >= 3.1)
 PKG_CHECK_MODULES(LIBNLGENL3, libnl-genl-3.0 >= 3.1)
 
+AC_CACHE_CHECK([for generic netlink policy dump support],
+		[nfsutils_cv_have_genl_policy_dump],
+	[AC_COMPILE_IFELSE([AC_LANG_PROGRAM([[
+#include <linux/genetlink.h>
+#include <linux/netlink.h>
+	]], [[
+		int policy[] = {
+			CTRL_CMD_GETPOLICY,
+			CTRL_ATTR_OP_POLICY,
+			CTRL_ATTR_POLICY,
+			CTRL_ATTR_OP,
+			CTRL_ATTR_POLICY_DO,
+			NL_POLICY_TYPE_ATTR_POLICY_IDX,
+			NL_POLICY_TYPE_ATTR_MASK,
+		};
+
+		return policy[0];
+	]])],
+	[nfsutils_cv_have_genl_policy_dump=yes],
+	[nfsutils_cv_have_genl_policy_dump=no])])
+AS_IF([test "x$nfsutils_cv_have_genl_policy_dump" = "xyes"],
+	[AC_DEFINE([HAVE_GENL_POLICY_DUMP], 1,
+		[Define to 1 if generic netlink policy dumps are supported])])
+
 AC_CHECK_HEADERS(linux/nfsd_netlink.h)
 
 # ensure the system netlink headers have the latest features
