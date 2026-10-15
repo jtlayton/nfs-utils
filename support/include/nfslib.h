@@ -76,6 +76,16 @@ struct xprtsec_entry {
 };
 
 /*
+ * Per-export I/O modes for read_io=/write_io=. Values must match the
+ * kernel's NFSD_IO_* enum (fs/nfsd/nfsd.h). NFSD_IO_UNSET means no
+ * option was given; the export follows the server's global setting.
+ */
+#define NFSD_IO_BUFFERED	0
+#define NFSD_IO_DONTCACHE	1
+#define NFSD_IO_DIRECT		2
+#define NFSD_IO_UNSET		(-1)
+
+/*
  * Data related to a single exports entry as returned by getexportent.
  * FIXME: export options should probably be parsed at a later time to
  * allow overrides when using exportfs.
@@ -100,6 +110,8 @@ struct exportent {
 	unsigned int	e_ttl;
 	char *		e_realpath;
 	int		e_reexport;
+	int		e_read_io;
+	int		e_write_io;
 };
 
 struct rmtabent {
@@ -115,6 +127,7 @@ void			setexportent(char *fname, char *type);
 struct exportent *	getexportent(int);
 void 			secinfo_show(FILE *fp, struct exportent *ep);
 void			xprtsecinfo_show(FILE *fp, struct exportent *ep);
+const char *		iomode_name(int mode);
 void			putexportent(struct exportent *xep);
 void			endexportent(void);
 struct exportent *	mkexportent(char *hname, char *path, char *opts);

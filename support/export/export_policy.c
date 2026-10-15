@@ -245,6 +245,28 @@ int nfsd_export_policy_query(struct nfsd_export_policy *UNUSED(pol))
 #endif /* HAVE_GENL_POLICY_DUMP */
 
 /**
+ * nfsd_export_iomode_supported - does the kernel take per-export I/O modes?
+ *
+ * A kernel without them refuses any svc_export entry that carries one.
+ *
+ * Returns 1 if it accepts read_io/write_io, 0 if not or if that cannot be
+ * found out, or -1 if the nfsd netlink family is not registered, as when
+ * nfsd is not loaded.
+ */
+int nfsd_export_iomode_supported(void)
+{
+	struct nfsd_export_policy pol;
+	int ret;
+
+	ret = nfsd_export_policy_query(&pol);
+	if (ret == -ENOENT)
+		return -1;
+	if (ret < 0)
+		return 0;
+	return pol.max_attr >= NFSD_A_SVC_EXPORT_WRITE_IO;
+}
+
+/**
  * nfsd_nl_load_export_features - learn the kernel's export flags over netlink
  *
  * The svc_export policy masks NFSD_A_SVC_EXPORT_FLAGS to the flags the kernel
