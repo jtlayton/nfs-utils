@@ -127,12 +127,12 @@ v4root_create(char *path, nfs_export *export)
 static int
 v4root_support(void)
 {
-	struct export_features *ef;
+	struct nfsd_export_policy *pol;
 	static int warned = 0;
 
-	ef = get_export_features();
+	pol = get_export_features();
 
-	if (ef->flags & NFSEXP_V4ROOT)
+	if (pol->flags & NFSEXP_V4ROOT)
 		return 1;
 	if (!warned) {
 		xlog(L_WARNING, "Kernel does not have pseudo root support.");
