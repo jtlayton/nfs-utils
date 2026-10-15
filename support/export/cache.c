@@ -4089,6 +4089,74 @@ static int nl_cache_ip_map(char *addr, char *domain, int ttl)
 	return ret < 0 ? -1 : 0;
 }
 
+/*
+ * export_test() over netlink: the same "-test-client-" entry, already
+ * expired, so the kernel runs check_export() on it but caches nothing.  Its
+ * answers match the /proc parser's, -ENOENT for a missing auth_domain
+ * included, so callers see no change in behaviour.
+ *
+ * Returns 1 if the kernel would take the export, 0 if it refused it, or -1
+ * if it never saw the request.
+ */
+static int nl_export_test(struct exportent *eep, int with_fsid)
+{
+	int flags = eep->e_flags | (with_fsid ? NFSEXP_FSID : 0);
+	struct nlattr *nest;
+	struct nl_msg *msg;
+	int kern_err, ret;
+
+	msg = cache_nl_new_msg(nfsd_nl_family,
+			       NFSD_CMD_SVC_EXPORT_SET_REQS, 0);
+	if (!msg)
+		return -1;
+
+	nest = nla_nest_start(msg, NFSD_A_SVC_EXPORT_REQS_REQUESTS);
+	if (!nest ||
+	    nla_put_string(msg, NFSD_A_SVC_EXPORT_CLIENT,
+			   "-test-client-") < 0 ||
+	    nla_put_string(msg, NFSD_A_SVC_EXPORT_PATH, eep->e_path) < 0 ||
+	    nla_put_u64(msg, NFSD_A_SVC_EXPORT_EXPIRY, 3) < 0 ||
+	    nla_put_u32(msg, NFSD_A_SVC_EXPORT_FLAGS, flags) < 0 ||
+	    nla_put_u32(msg, NFSD_A_SVC_EXPORT_ANON_UID, 65534) < 0 ||
+	    nla_put_u32(msg, NFSD_A_SVC_EXPORT_ANON_GID, 65534) < 0 ||
+	    nla_put_s32(msg, NFSD_A_SVC_EXPORT_FSID, 0) < 0) {
+		nlmsg_free(msg);
+		return -1;
+	}
+	nla_nest_end(msg, nest);
+
+	ret = cache_nl_set_reqs(nfsd_nl_cmd_sock, msg, &kern_err);
+	nlmsg_free(msg);
+	if (ret == 0)
+		return 1;
+	return kern_err ? 0 : -1;
+}
+
+/**
+ * cache_export_test - would the kernel export @eep?
+ * @eep: export to test
+ * @with_fsid: test it with NFSEXP_FSID set
+ *
+ * export_test(), but over netlink when mountd/exportd are using it.  If the
+ * kernel never sees the netlink request, fall back to /proc rather than
+ * guess: the answer decides whether a pseudo-root directory gets a uuid,
+ * and so what its filehandle is.
+ *
+ * Returns 1 if the kernel would take the export, otherwise 0.
+ */
+int cache_export_test(struct exportent *eep, int with_fsid)
+{
+	int ret;
+
+	if (!nfsd_nl_cmd_sock)
+		return export_test(eep, with_fsid);
+
+	ret = nl_export_test(eep, with_fsid);
+	if (ret < 0)
+		return export_test(eep, with_fsid);
+	return ret;
+}
+
 /**
  * cache_export - Inform kernel of a new nfs_export
  * @exp: target nfs_export

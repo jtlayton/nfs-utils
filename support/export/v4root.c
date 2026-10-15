@@ -24,6 +24,7 @@
 
 #include "xlog.h"
 #include "exportfs.h"
+#include "export.h"
 #include "nfslib.h"
 #include "misc.h"
 #include "v4root.h"
@@ -94,7 +95,7 @@ v4root_create(char *path, nfs_export *export)
 		eep.e_flags &= ~NFSEXP_FSID;
 
 	if (strcmp(path, "/") != 0 &&
-	    !export_test(&eep, 0)) {
+	    !cache_export_test(&eep, 0)) {
 		/* Need a uuid - base it on path using a fixed seed that
 		 * was generated randomly.
 		 */

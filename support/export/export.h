@@ -29,6 +29,7 @@ int		v4clients_process(fd_set *fdset);
 struct nfs_fh_len *
 		cache_get_filehandle(nfs_export *exp, int len, char *p);
 int		cache_export(nfs_export *exp, char *path);
+int		cache_export_test(struct exportent *eep, int with_fsid);
 int		cache_fork_workers(char *prog, int num_threads);
 void		cache_wait_for_workers(char *prog);
 int		cache_process(fd_set *readfds);
