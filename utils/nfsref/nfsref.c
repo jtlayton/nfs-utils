@@ -44,6 +44,11 @@
 #include "nfsref.h"
 
 /**
+ * Lets cache_flush() try netlink before the /proc flush files
+ */
+int no_netlink;
+
+/**
  * Short form command line options
  */
 static const char nfsref_opts[] = "?dt:";
