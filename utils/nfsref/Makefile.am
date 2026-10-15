@@ -29,7 +29,9 @@ sbin_PROGRAMS		= nfsref
 nfsref_SOURCES		= add.c lookup.c nfsref.c remove.c
 LDADD			= ../../support/nfs/libnfs.la \
 			  ../../support/junction/libjunction.la \
-			  $(LIBXML2) $(LIBCAP)
+			  ../../support/export/libexport.a \
+			  $(LIBXML2) $(LIBCAP) \
+			  $(LIBNL3_LIBS) $(LIBNLGENL3_LIBS)
 
 man8_MANS		= nfsref.man
 
