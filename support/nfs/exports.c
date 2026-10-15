@@ -235,10 +235,10 @@ static void secinfo_flags_show(FILE *fp, unsigned int flags, unsigned int mask)
 
 void secinfo_show(FILE *fp, struct exportent *ep)
 {
-	const struct export_features *ef;
+	const struct nfsd_export_policy *pol;
 	struct sec_entry *p1, *p2;
 
-	ef = get_export_features();
+	pol = get_export_features();
 
 	if (ep->e_secinfo[0].flav == NULL)
 		secinfo_addflavor(find_flavor("sys"), ep);
@@ -248,7 +248,7 @@ void secinfo_show(FILE *fp, struct exportent *ep)
 								p2++) {
 			fprintf(fp, ":%s", p2->flav->flavour);
 		}
-		secinfo_flags_show(fp, p1->flags, ef->secinfo_flags);
+		secinfo_flags_show(fp, p1->flags, pol->secinfo_flags);
 	}
 }
 
@@ -623,12 +623,12 @@ static void clearflags(int mask, unsigned int active, struct exportent *ep)
  */
 void fix_pseudoflavor_flags(struct exportent *ep)
 {
-	struct export_features *ef;
+	struct nfsd_export_policy *pol;
 	struct sec_entry *p;
 
-	ef = get_export_features();
+	pol = get_export_features();
 	for (p = ep->e_secinfo; p->flav; p++)
-		p->flags |= ep->e_flags & ~ef->secinfo_flags;
+		p->flags |= ep->e_flags & ~pol->secinfo_flags;
 }
 
 /*
@@ -962,20 +962,20 @@ syntaxerr(char *msg)
 	xlog(L_ERROR, "%s:%d: syntax error: %s",
 			efname, efp?efp->x_line:0, msg);
 }
-struct export_features *get_export_features(void)
+struct nfsd_export_policy *get_export_features(void)
 {
 	static char *path = "/proc/fs/nfsd/export_features";
-	static struct export_features ef;
+	static struct nfsd_export_policy pol;
 	static int cached = 0;
 	char buf[50];
 	int c;
 	int fd;
 
 	if (cached)
-		return &ef;
+		return &pol;
 
-	ef.flags = NFSEXP_OLDFLAGS;
-	ef.secinfo_flags = NFSEXP_OLD_SECINFO_FLAGS;
+	pol.flags = NFSEXP_OLDFLAGS;
+	pol.secinfo_flags = NFSEXP_OLD_SECINFO_FLAGS;
 
 	fd = open(path, O_RDONLY);
 	if (fd == -1)
@@ -985,13 +985,13 @@ struct export_features *get_export_features(void)
 	if (c == -1)
 		goto err;
 	buf[c] = 0;
-	c = sscanf(buf, "%x %x", &ef.flags, &ef.secinfo_flags);
+	c = sscanf(buf, "%x %x", &pol.flags, &pol.secinfo_flags);
 	if (c != 2)
 		goto err;
 good:
 	cached = 1;
-	return &ef;
+	return &pol;
 err:
 	xlog(L_WARNING, "unexpected error reading %s", path);
-	return &ef;
+	return &pol;
 }

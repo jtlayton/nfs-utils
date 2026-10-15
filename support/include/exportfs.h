@@ -166,12 +166,13 @@ struct addrinfo *		host_numeric_addrinfo(const struct sockaddr *sap);
 
 struct nfskey *			key_lookup(char *hname);
 
-struct export_features {
-	unsigned int flags;
-	unsigned int secinfo_flags;
+/* What the kernel's export interface accepts */
+struct nfsd_export_policy {
+	unsigned int	flags;		/* export flags it knows */
+	unsigned int	secinfo_flags;	/* flags that may vary per flavor */
 };
 
-struct export_features *get_export_features(void);
+struct nfsd_export_policy *get_export_features(void);
 void fix_pseudoflavor_flags(struct exportent *ep);
 char *exportent_realpath(struct exportent *eep);
 int export_test(struct exportent *eep, int with_fsid);
