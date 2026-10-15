@@ -85,23 +85,25 @@ v4root_create(char *path, nfs_export *export)
 	nfs_export *exp;
 	struct exportent eep;
 	struct exportent *curexp = &export->m_export;
+	char uuid_s[UUID_STR_LEN];
 
 	dupexportent(&eep, &pseudo_root.m_export);
 	eep.e_ttl = default_ttl;
 	eep.e_hostname = curexp->e_hostname;
 	strncpy(eep.e_path, path, sizeof(eep.e_path)-1);
-	if (strcmp(path, "/") != 0)
-		eep.e_flags &= ~NFSEXP_FSID;
 
-	if (strcmp(path, "/") != 0 &&
-	    !export_test(&eep, 0)) {
-		/* Need a uuid - base it on path using a fixed seed that
-		 * was generated randomly.
+	if (strcmp(path, "/") != 0) {
+		/*
+		 * Some filesystems (tmpfs, say) cannot be exported without an
+		 * fsid or uuid, so give every pseudo-root directory below "/"
+		 * one.  Base it on the path, using a fixed seed that was
+		 * generated randomly, so that its filehandle never changes.
 		 */
 		const char seed_s[] = "39c6b5c1-3f24-4f4e-977c-7fe6546b8a25";
 		uuid_t seed, uuid;
-		char uuid_s[UUID_STR_LEN];
 		unsigned int i, j;
+
+		eep.e_flags &= ~NFSEXP_FSID;
 
 		uuid_parse(seed_s, seed);
 		uuid_generate_sha1(uuid, seed, path, strlen(path));
