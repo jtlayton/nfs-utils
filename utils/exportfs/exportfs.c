@@ -218,6 +218,8 @@ main(int argc, char **argv)
 	if (!setup_state_path_names(progname, ETAB, ETABTMP, ETABLCK, &etab))
 		return 1;
 
+	nfsd_nl_load_export_features();
+
 	if (optind == argc && ! f_all) {
 		if (force_flush) {
 			cache_flush();

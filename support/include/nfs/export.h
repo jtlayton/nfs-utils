@@ -39,6 +39,11 @@
  */
 #define NFSEXP_OLD_SECINFO_FLAGS (NFSEXP_READONLY | NFSEXP_ROOTSQUASH \
 					| NFSEXP_ALLSQUASH)
+/*
+ * Flags that can vary per flavor on every kernel with the netlink export
+ * interface:
+ */
+#define NFSEXP_SECINFO_FLAGS	(NFSEXP_OLD_SECINFO_FLAGS | NFSEXP_INSECURE_PORT)
 
 /*
  * Transport layer security policies that are permitted to access
