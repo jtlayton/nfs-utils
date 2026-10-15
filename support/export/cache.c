@@ -2877,7 +2877,7 @@ static int cache_nl_get_ip_map_reqs(struct ip_map_req **reqs_out,
 }
 
 static int nl_add_ip_map(struct nl_msg *msg, char *class, char *addr,
-			 char *domain)
+			 char *domain, int ttl)
 {
 	struct nlattr *nest;
 	time_t now = time(0);
@@ -2888,8 +2888,7 @@ static int nl_add_ip_map(struct nl_msg *msg, char *class, char *addr,
 
 	if (nla_put_string(msg, SUNRPC_A_IP_MAP_CLASS, class) < 0 ||
 	    nla_put_string(msg, SUNRPC_A_IP_MAP_ADDR, addr) < 0 ||
-	    nla_put_u64(msg, SUNRPC_A_IP_MAP_EXPIRY,
-			now + default_ttl) < 0)
+	    nla_put_u64(msg, SUNRPC_A_IP_MAP_EXPIRY, now + ttl) < 0)
 		goto nla_failure;
 
 	if (domain) {
@@ -2964,7 +2963,8 @@ static void cache_nl_process_ip_map(void)
 			}
 		}
 
-		if (nl_add_ip_map(msg, class, ipaddr, domain) < 0) {
+		if (nl_add_ip_map(msg, class, ipaddr, domain,
+				  default_ttl) < 0) {
 			cache_nl_flush_reqs(sunrpc_nl_cmd_sock, msg, "ip_map");
 			nlmsg_free(msg);
 			msg = cache_nl_new_msg(sunrpc_nl_family,
@@ -2975,7 +2975,8 @@ static void cache_nl_process_ip_map(void)
 				nfs_freeaddrinfo(tmp);
 				goto out_free;
 			}
-			if (nl_add_ip_map(msg, class, ipaddr, domain) < 0)
+			if (nl_add_ip_map(msg, class, ipaddr, domain,
+					  default_ttl) < 0)
 				xlog(L_WARNING, "%s: skipping oversized "
 				     "entry for %s", __func__, ipaddr);
 		}
@@ -3952,14 +3953,61 @@ int cache_process(fd_set *readfds)
  * % echo $domain $path $[now+DEFAULT_TTL] $options $anonuid $anongid $fsid > /proc/net/rpc/nfsd.export/channel
  */
 
+/*
+ * Push one positive svc_export entry over netlink.  The kernel takes an entry
+ * it did not ask for, so a MOUNT can prime the cache without /proc.
+ *
+ * Returns 0, or -1 if the kernel refused the entry or never saw it.
+ */
+static int nl_cache_export(char *domain, char *path, struct exportent *exp)
+{
+	struct export_attrs ea;
+	struct nl_msg *msg;
+	int ret;
+
+	if (export_attrs_build(&ea, path, exp) < 0)
+		return -1;
+
+	msg = cache_nl_new_msg(nfsd_nl_family,
+			       NFSD_CMD_SVC_EXPORT_SET_REQS, 0);
+	if (!msg)
+		return -1;
+
+	if (nfsd_nl_add_export(msg, domain, path, exp, &ea, 0) < 0) {
+		nlmsg_free(msg);
+		return -1;
+	}
+
+	ret = cache_nl_set_reqs(nfsd_nl_cmd_sock, msg, NULL);
+	nlmsg_free(msg);
+	if (ret < 0)
+		return -1;
+
+	xlog(D_AUTH, "granted access to %s for %s",
+	     path, *domain == '$' ? domain+1 : domain);
+	return 0;
+}
+
+/* @f is the nfsd.export channel, or -1 when netlink is in use */
+static int export_to_kernel(int f, char *buf, int buflen, char *domain,
+			    char *path, struct exportent *exp)
+{
+	if (f < 0)
+		return nl_cache_export(domain, path, exp);
+	return dump_to_cache(f, buf, buflen, domain, path, exp, 0);
+}
+
 static int cache_export_ent(char *buf, int buflen, char *domain, struct exportent *exp, char *path)
 {
-	int f, err;
+	int f = -1, err;
 
-	f = open("/proc/net/rpc/nfsd.export/channel", O_WRONLY);
-	if (f < 0) return -1;
+	if (!nfsd_nl_cmd_sock) {
+		f = open("/proc/net/rpc/nfsd.export/channel", O_WRONLY);
+		if (f < 0)
+			return -1;
+	}
 
-	err = dump_to_cache(f, buf, buflen, domain, exp->e_path, exp, 0);
+	err = export_to_kernel(f, buf, buflen, domain, exp->e_path, exp);
 	if (err) {
 		xlog(L_WARNING,
 		     "Cannot export %s, possibly unsupported filesystem or"
@@ -4000,14 +4048,40 @@ static int cache_export_ent(char *buf, int buflen, char *domain, struct exporten
 				continue;
 			dev = stb.st_dev;
 			path[l] = 0;
-			dump_to_cache(f, buf, buflen, domain, path, exp, 0);
+			export_to_kernel(f, buf, buflen, domain, path, exp);
 			path[l] = c;
 		}
 		break;
 	}
 
-	close(f);
+	if (f >= 0)
+		close(f);
 	return err;
+}
+
+/*
+ * Push the IP address -> domain mapping for a MOUNT over netlink.
+ *
+ * Returns 0, or -1 if the kernel refused the entry or never saw it.
+ */
+static int nl_cache_ip_map(char *addr, char *domain, int ttl)
+{
+	struct nl_msg *msg;
+	int ret;
+
+	msg = cache_nl_new_msg(sunrpc_nl_family,
+			       SUNRPC_CMD_IP_MAP_SET_REQS, 0);
+	if (!msg)
+		return -1;
+
+	if (nl_add_ip_map(msg, "nfsd", addr, domain, ttl) < 0) {
+		nlmsg_free(msg);
+		return -1;
+	}
+
+	ret = cache_nl_set_reqs(sunrpc_nl_cmd_sock, msg, NULL);
+	nlmsg_free(msg);
+	return ret < 0 ? -1 : 0;
 }
 
 /**
@@ -4019,7 +4093,18 @@ int cache_export(nfs_export *exp, char *path)
 {
 	char ip[INET6_ADDRSTRLEN];
 	char buf[RPC_CHAN_BUF_SIZE], *bp;
+	char *domain = exp->m_client->m_hostname;
+	char *addr;
 	int blen, f;
+
+	addr = host_ntop(get_addrlist(exp->m_client, 0), ip, sizeof(ip));
+
+	if (sunrpc_nl_cmd_sock) {
+		if (nl_cache_ip_map(addr, domain, exp->m_export.e_ttl) < 0)
+			return -1;
+		return cache_export_ent(buf, sizeof(buf), domain,
+					&exp->m_export, path);
+	}
 
 	f = open("/proc/net/rpc/auth.unix.ip/channel", O_WRONLY);
 	if (f < 0)
@@ -4027,15 +4112,15 @@ int cache_export(nfs_export *exp, char *path)
 
 	bp = buf, blen = sizeof(buf);
 	qword_add(&bp, &blen, "nfsd");
-	qword_add(&bp, &blen, host_ntop(get_addrlist(exp->m_client, 0), ip, sizeof(ip)));
+	qword_add(&bp, &blen, addr);
 	qword_adduint(&bp, &blen, time(0) + exp->m_export.e_ttl);
-	qword_add(&bp, &blen, exp->m_client->m_hostname);
+	qword_add(&bp, &blen, domain);
 	qword_addeol(&bp, &blen);
 	if (blen <= 0 || cache_write(f, buf, bp - buf) != bp - buf) blen = -1;
 	close(f);
 	if (blen < 0) return -1;
 
-	return cache_export_ent(buf, sizeof(buf), exp->m_client->m_hostname, &exp->m_export, path);
+	return cache_export_ent(buf, sizeof(buf), domain, &exp->m_export, path);
 }
 
 /**
