@@ -81,7 +81,7 @@ static struct option longopts[] =
 	{ "apply-root-cred", 0, 0, 'c' },
 	{ NULL, 0, 0, 0 }
 };
-static char shortopts[] = "o:nFd:p:P:hH:N:V:vurs:t:gliT:c";
+static char shortopts[] = "o:nFd:p:P:hH:N:V:vurs:t:gliLT:c";
 
 #define NFSVERSBIT(vers)	(0x1 << (vers - 1))
 #define NFSVERSBIT_ALL		(NFSVERSBIT(2) | NFSVERSBIT(3) | NFSVERSBIT(4))
