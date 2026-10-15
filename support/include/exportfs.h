@@ -172,6 +172,17 @@ struct export_features {
 };
 
 struct export_features *get_export_features(void);
+void set_export_features(const struct export_features *features);
+
+/* What the kernel's svc_export netlink policy accepts */
+struct nfsd_export_policy {
+	int		max_attr;	/* highest svc_export attribute */
+	unsigned int	flags_mask;	/* valid NFSD_A_SVC_EXPORT_FLAGS bits */
+};
+
+int nfsd_export_policy_query(struct nfsd_export_policy *pol);
+void nfsd_nl_load_export_features(void);
+
 void fix_pseudoflavor_flags(struct exportent *ep);
 char *exportent_realpath(struct exportent *eep);
 int export_test(struct exportent *eep, int with_fsid);

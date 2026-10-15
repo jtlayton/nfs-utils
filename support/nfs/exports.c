@@ -962,20 +962,32 @@ syntaxerr(char *msg)
 	xlog(L_ERROR, "%s:%d: syntax error: %s",
 			efname, efp?efp->x_line:0, msg);
 }
+
+static struct export_features kernel_features;
+static int kernel_features_cached;
+
+/*
+ * A program that can ask the kernel over netlink hands its answer in here,
+ * so that get_export_features() need not read /proc.
+ */
+void set_export_features(const struct export_features *features)
+{
+	kernel_features = *features;
+	kernel_features_cached = 1;
+}
+
 struct export_features *get_export_features(void)
 {
 	static char *path = "/proc/fs/nfsd/export_features";
-	static struct export_features ef;
-	static int cached = 0;
 	char buf[50];
 	int c;
 	int fd;
 
-	if (cached)
-		return &ef;
+	if (kernel_features_cached)
+		return &kernel_features;
 
-	ef.flags = NFSEXP_OLDFLAGS;
-	ef.secinfo_flags = NFSEXP_OLD_SECINFO_FLAGS;
+	kernel_features.flags = NFSEXP_OLDFLAGS;
+	kernel_features.secinfo_flags = NFSEXP_OLD_SECINFO_FLAGS;
 
 	fd = open(path, O_RDONLY);
 	if (fd == -1)
@@ -985,13 +997,14 @@ struct export_features *get_export_features(void)
 	if (c == -1)
 		goto err;
 	buf[c] = 0;
-	c = sscanf(buf, "%x %x", &ef.flags, &ef.secinfo_flags);
+	c = sscanf(buf, "%x %x", &kernel_features.flags,
+		   &kernel_features.secinfo_flags);
 	if (c != 2)
 		goto err;
 good:
-	cached = 1;
-	return &ef;
+	kernel_features_cached = 1;
+	return &kernel_features;
 err:
 	xlog(L_WARNING, "unexpected error reading %s", path);
-	return &ef;
+	return &kernel_features;
 }
