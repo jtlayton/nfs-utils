@@ -107,6 +107,8 @@ static void init_exportent (struct exportent *ee, int fromkernel)
 	ee->e_uuid = NULL;
 	ee->e_ttl = default_ttl;
 	ee->e_reexport = REEXP_NONE;
+	ee->e_riomode = NFSD_IO_UNSET;
+	ee->e_wiomode = NFSD_IO_UNSET;
 }
 
 struct exportent *
@@ -313,6 +315,10 @@ putexportent(struct exportent *ep)
 	if (ep->e_flags & NFSEXP_SIGN_FH)
 		fprintf(fp, "sign_fh,");
 	fprintf(fp, "%spnfs,", (ep->e_flags & NFSEXP_PNFS)? "" : "no_");
+	if (ep->e_riomode != NFSD_IO_UNSET)
+		fprintf(fp, "riomode=%s,", iomode_name(ep->e_riomode));
+	if (ep->e_wiomode != NFSD_IO_UNSET)
+		fprintf(fp, "wiomode=%s,", iomode_name(ep->e_wiomode));
 	if (ep->e_flags & NFSEXP_FSID) {
 		fprintf(fp, "fsid=%d,", ep->e_fsid);
 	}
@@ -586,6 +592,45 @@ static unsigned int parse_xprtsec(char *str, struct exportent *ep)
 	return out;
 }
 
+/*
+ * Parse the value of a riomode= or wiomode= option into @mode.
+ *
+ * A zero return indicates an error.
+ */
+static int parse_iomode(char *str, int *mode)
+{
+	char *flname = efname ? efname : "command line";
+	int flline = efp ? efp->x_line : 0;
+
+	if (!strcmp(str, "buffered"))
+		*mode = NFSD_IO_BUFFERED;
+	else if (!strcmp(str, "dontcache"))
+		*mode = NFSD_IO_DONTCACHE;
+	else if (!strcmp(str, "direct"))
+		*mode = NFSD_IO_DIRECT;
+	else {
+		xlog(L_ERROR, "%s:%d: bad iomode \"%s\"\n",
+		     flname, flline, str);
+		return 0;
+	}
+	return 1;
+}
+
+const char *
+iomode_name(int mode)
+{
+	switch (mode) {
+	case NFSD_IO_BUFFERED:
+		return "buffered";
+	case NFSD_IO_DONTCACHE:
+		return "dontcache";
+	case NFSD_IO_DIRECT:
+		return "direct";
+	default:
+		return "unknown";
+	}
+}
+
 /* Sets the bits in @mask for the appropriate security flavor flags. */
 static void setflags(int mask, unsigned int active, struct exportent *ep)
 {
@@ -803,6 +848,12 @@ bad_option:
 				goto bad_option;
 		} else if (strncmp(opt, "xprtsec=", 8) == 0) {
 			if (!parse_xprtsec(opt + 8, ep))
+				goto bad_option;
+		} else if (strncmp(opt, "riomode=", 8) == 0) {
+			if (!parse_iomode(opt + 8, &ep->e_riomode))
+				goto bad_option;
+		} else if (strncmp(opt, "wiomode=", 8) == 0) {
+			if (!parse_iomode(opt + 8, &ep->e_wiomode))
 				goto bad_option;
 		} else if (strncmp(opt, "reexport=", 9) == 0) {
 			char *strategy = strchr(opt, '=');
