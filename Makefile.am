@@ -8,6 +8,8 @@ MAINTAINERCLEANFILES = Makefile.in
 
 EXTRA_DIST = \
 	autogen.sh \
+	MAINTAINERS \
+	scripts/get_maintainer.pl \
 	\
 	aclocal/bsdsignals.m4 \
 	aclocal/getrandom.m4 \

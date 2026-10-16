@@ -1,0 +1,58 @@
+List of maintainers and how to submit nfs-utils changes
+====================================================
+
+Patches for nfs-utils are reviewed on the linux-nfs mailing list and
+applied by the maintainer.  There is no pull request workflow.
+
+Mailing list: linux-nfs@vger.kernel.org (plain text, inline patches,
+typically with git send-email or b4 send).  Because the list is shared
+with the kernel NFS client and server code, prefix nfs-utils patch
+subjects with [PATCH nfs-utils] so the target tree is obvious.
+
+This file uses the same section format as the Linux kernel MAINTAINERS
+file.  scripts/get_maintainer.pl reads it and prints the people and
+lists to Cc on a patch; "b4 prep --auto-to-cc" runs that script for
+you.  For example:
+
+	scripts/get_maintainer.pl <patch>
+	b4 prep --auto-to-cc
+
+Every patch must carry a Signed-off-by: trailer (Developer's
+Certificate of Origin, as in the kernel).
+
+Descriptions of section entries
+-------------------------------
+
+	M: *Mail* patches to: FullName <address@domain>
+	R: Designated *Reviewer*: FullName <address@domain>
+	   These reviewers should be Cc'd on patches.
+	L: *Mailing list* that is relevant to this area
+	S: *Status*, one of the following:
+	   Supported:	Someone is actually paid to look after this.
+	   Maintained:	Someone actually looks after it.
+	   Odd Fixes:	It has a maintainer but they don't have time to do
+			much other than throw the odd patch in.
+	   Orphan:	No current maintainer.
+	   Obsolete:	Old code, replaced by a better system.
+	T: *SCM* tree type and location.
+	F: *Files* and directories wildcard patterns.
+	   A trailing slash includes all files and subdirectory files.
+	   F:	utils/mountd/	all files in and below utils/mountd
+	   One pattern per line.  Multiple F: lines acceptable.
+	X: *Excluded* files and directories that are NOT maintained, same
+	   rules as F:.  Exclusions are tested before file matches.
+	N: Files and directories *Regex* patterns.
+	   One pattern per line.  Multiple N: lines acceptable.
+	K: *Content regex* (perl extended) pattern match in a patch or file.
+	   One regex pattern per line.  Multiple K: lines acceptable.
+
+Maintainers List
+----------------
+
+NFS-UTILS
+M:	Steve Dickson <steved@redhat.com>
+L:	linux-nfs@vger.kernel.org
+S:	Maintained
+T:	git git://git.linux-nfs.org/projects/steved/nfs-utils.git
+F:	*
+F:	*/
