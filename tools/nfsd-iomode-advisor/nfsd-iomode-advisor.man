@@ -1,0 +1,232 @@
+.\"
+.\" nfsd-iomode-advisor(8)
+.\"
+.TH NFSD-IOMODE-ADVISOR 8 "26 October 2026"
+.SH NAME
+nfsd-iomode-advisor \- recommend NFSD IO modes for an export
+.SH SYNOPSIS
+.B nfsd-iomode-advisor
+.RB [ \-i
+.IR seconds ]
+.RB [ \-s
+.IR N ]
+.RB [ \-j ]
+.I export
+.SH DESCRIPTION
+.B nfsd-iomode-advisor
+measures page cache and memory reclaim metrics on an NFS server.
+It then recommends values for the
+.B read_io=
+and
+.B write_io=
+export options of
+.IR export .
+See
+.BR exports (5).
+.PP
+Run the command on the NFS server while clients use the export with a
+typical workload.
+Run it while the export uses buffered IO for READ and WRITE.
+With dontcache or direct IO, the page cache metrics are not meaningful,
+and the recommendation is "unknown".
+.PP
+The command collects these metrics at the start and the end of the
+interval, unless noted:
+.IP \(bu 2
+The bytes that NFSD read and wrote for each export, from
+.IR /proc/fs/nfsd/export_stats .
+.IP \(bu
+The bytes that storage supplied for the READs of the export
+.RI ( io_read_storage
+in
+.IR export_stats ,
+on a kernel with
+.BR CONFIG_TASK_IO_ACCOUNTING ).
+Without this value, the command uses the bytes that the block device
+of the export read.
+The command divides this value by the bytes that NFSD read.
+The result is the miss ratio.
+.IP \(bu
+Page reclaim and refault counters from
+.IR /proc/vmstat .
+The command compares the reclaimed memory with the data that the export
+read from storage and wrote.
+Reclaim can go only as fast as storage fills the page cache, so the
+command does not compare it with the memory size.
+It also shows the part of reclaim that allocating tasks did themselves
+(direct reclaim).
+This part increases when kswapd cannot reclaim fast enough.
+.IP \(bu
+Memory pressure from
+.IR /proc/pressure/memory .
+.IP \(bu
+For each cgroup that reaches its
+.B memory.high
+or
+.B memory.max
+limit during the interval, its reclaim, refaults and memory stalls.
+These are not system memory pressure.
+The command does not count them.
+Stalls of different cgroups can overlap, so the remaining memory
+pressure is a lower limit.
+.IP \(bu
+The CPU time of the busiest kswapd or kcompactd kernel thread.
+Each NUMA node has its own threads.
+.IP \(bu
+Each second, Dirty and Writeback memory of the backing device of the
+export, from
+.IR /sys/kernel/debug/bdi/*/stats .
+If the command cannot read these statistics, it uses the values for
+all devices from
+.IR /proc/meminfo .
+The command compares the average with the background writeback
+threshold of the kernel
+.RB ( vm.dirty_background_ratio
+or
+.BR vm.dirty_background_bytes ).
+.IP \(bu
+Free memory and the high watermarks of the memory zones, from
+.IR /proc/zoneinfo .
+If free memory is far above the watermarks, the page cache has not
+filled yet, and the command shows that its recommendation can change.
+.IP \(bu
+The average READ and WRITE size, from
+.IR /proc/net/rpc/nfsd .
+.IP \(bu
+Optionally, the page cache state of files in the export, from
+.BR cachestat (2).
+.PP
+The command also checks if the filesystem of the export supports
+dontcache and direct IO.
+If it does not, NFSD uses buffered IO for these modes, and the command
+does not recommend them.
+Over TCP, NFSD can write with direct IO only if the block device of
+the export accepts memory that is aligned to 4 bytes.
+Device mapper and MD devices, such as LVM volumes, do not.
+For these exports, the command does not recommend
+.BR write_io=direct .
+.PP
+The command reads the
+.I rotational
+and
+.I optimal_io_size
+attributes of the block device of the export, from
+.IR /sys/block/*/queue .
+It does not recommend direct IO on rotational storage.
+There, the readahead and writeback of the page cache, which make
+fewer and larger requests, are worth more than the cost of page
+reclaim.
+It recommends buffered IO for WRITEs that are smaller than the optimal
+IO size, for example the stripe width of a parity RAID device.
+Only the page cache collects these WRITEs into full stripes.
+On a system with large pages, it also requires WRITEs of at least
+three pages for direct IO.
+NFSD writes the misaligned start and end of a WRITE up to page
+boundaries with buffered IO.
+.PP
+For each recommendation, the command shows the reasons.
+If the data is not sufficient, the recommendation is "unknown".
+.SH OPTIONS
+.TP
+.BI "\-i, \-\-interval " seconds
+Set the measurement interval.
+The default is 60 seconds.
+.TP
+.BI "\-s, \-\-sample\-files " N
+Use
+.BR cachestat (2)
+on the
+.I N
+largest files in the export.
+The command examines at most 10000 files, or 20 times
+.IR N ,
+to find them.
+The default is 0, which disables this check.
+.TP
+.B \-j, \-\-json
+Show the metrics and the recommendation as JSON.
+.SH NOTES
+The recommendations come from heuristic thresholds.
+Use them as a starting point.
+Change the IO mode of one export at a time, and compare the metrics
+before and after the change.
+.PP
+The miss ratio includes the readahead and the filesystem metadata
+that the READs needed.
+A miss ratio clearly larger than 1 shows that readahead reads data that
+clients do not request.
+.PP
+.I io_read_storage
+counts only the storage reads that NFSD threads submit.
+Some filesystems, such as FUSE filesystems and ZFS, read storage from
+their own threads.
+For these, the command uses block device reads, if available.
+If
+.I io_read_storage
+shows almost no storage reads but the block device read a large
+amount, the command shows that the miss ratio can be too low.
+.PP
+The block device miss ratio is approximate.
+Local applications also cause device reads.
+If more than one export is on the same block device, this miss ratio
+is for all of these exports.
+.PP
+The kernel adds an export to
+.I /proc/fs/nfsd/export_stats
+when a client first uses it.
+For an export that no client uses yet, the command reads the export
+options from
+.IR /var/lib/nfs/etab .
+.PP
+The kernel keeps the counters of an export when mountd refreshes it.
+If an export cache entry appears during the interval with counters
+that started earlier, or leaves the cache during the interval, its
+traffic in the interval is not known, and the command does not include
+it.
+.PP
+The average IO sizes are for all exports.
+The command does not check if READs and WRITEs are aligned for direct
+IO.
+The memory metrics are for the full system, not for each NUMA node.
+.PP
+On a system that uses cgroup v1 for the memory controller, the command
+cannot separate the reclaim of cgroups at their memory limit.
+.PP
+The command cannot see the page cache of the clients.
+If the client page cache supplies most reads, the server page cache
+keeps copies of data that the clients already have.
+See
+.BR mountstats (8)
+on the clients.
+.PP
+The command must run as root to read the global IO modes in debugfs
+and to open the files for
+.BR cachestat (2).
+.SH FILES
+.I /proc/fs/nfsd/export_stats
+.br
+.I /proc/net/rpc/nfsd
+.br
+.I /proc/net/rpc/nfsd.export/content
+.br
+.I /var/lib/nfs/etab
+.br
+.I /sys/fs/cgroup/*/memory.events.local
+.br
+.I /sys/kernel/debug/bdi/*/stats
+.br
+.I /sys/block/*/queue/rotational
+.br
+.I /sys/block/*/queue/optimal_io_size
+.br
+.I /proc/zoneinfo
+.br
+.I /sys/kernel/debug/nfsd/io_cache_read
+.br
+.I /sys/kernel/debug/nfsd/io_cache_write
+.SH SEE ALSO
+.BR exports (5),
+.BR exportfs (8),
+.BR nfsiostat (8),
+.BR mountstats (8),
+.BR cachestat (2)

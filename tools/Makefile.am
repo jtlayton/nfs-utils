@@ -16,6 +16,6 @@ if CONFIG_NFSRAHEAD
 OPTDIRS += nfsrahead
 endif
 
-SUBDIRS = locktest rpcdebug nlmtest mountstats nfs-iostat rpcctl nfsdclnts $(OPTDIRS)
+SUBDIRS = locktest rpcdebug nlmtest mountstats nfs-iostat rpcctl nfsdclnts nfsd-iomode-advisor $(OPTDIRS)
 
 MAINTAINERCLEANFILES = Makefile.in
