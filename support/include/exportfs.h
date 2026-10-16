@@ -170,6 +170,8 @@ struct nfskey *			key_lookup(char *hname);
 struct nfsd_export_policy {
 	unsigned int	flags;		/* export flags it knows */
 	unsigned int	secinfo_flags;	/* flags that may vary per flavor */
+	int		max_attr;	/* highest svc_export netlink attribute,
+					 * 0 if it did not say */
 };
 
 struct nfsd_export_policy *get_export_features(void);

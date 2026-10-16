@@ -40,6 +40,7 @@ struct export_policy_dump {
 	int		done;
 	int		do_idx;		/* the op's own policy */
 	/* per policy: */
+	int		max_attr[NL_POLICY_SLOTS];
 	int		reqs_idx[NL_POLICY_SLOTS];	/* REQUESTS nests this */
 	uint64_t	flags_mask[NL_POLICY_SLOTS];	/* mask of FLAGS */
 };
@@ -106,6 +107,8 @@ static void nl_policy_attrs(struct export_policy_dump *d, struct nlattr *attr)
 		nla_for_each_nested(a, pol, arem) {
 			int type = nla_type(a);
 
+			if (d->max_attr[idx] < type)
+				d->max_attr[idx] = type;
 			nla_for_each_nested(p, a, rem)
 				nl_policy_type_attr(d, idx, type, p);
 		}
@@ -219,8 +222,10 @@ int nfsd_export_policy_query(struct nfsd_export_policy *pol)
 	 * every kernel with the netlink export interface.
 	 */
 	cached.secinfo_flags = NFSEXP_SECINFO_FLAGS;
+	cached.max_attr = d.max_attr[svc];
 	have_cached = true;
-	xlog(D_NETLINK, "svc_export policy: flags 0x%x", cached.flags);
+	xlog(D_NETLINK, "svc_export policy: max attribute %d, flags 0x%x",
+	     cached.max_attr, cached.flags);
 	*pol = cached;
 	ret = 0;
 out:
