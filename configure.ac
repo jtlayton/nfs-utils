@@ -779,6 +779,7 @@ AC_CONFIG_FILES([
 	tools/nfsrahead/Makefile
 	tools/rpcctl/Makefile
 	tools/nfsdclnts/Makefile
+	tools/nfsd-iomode-advisor/Makefile
 	tools/nfsconf/Makefile
 	tools/nfsdclddb/Makefile
 	utils/Makefile

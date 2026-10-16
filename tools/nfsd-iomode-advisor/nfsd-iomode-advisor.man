@@ -1,0 +1,132 @@
+.\"
+.\" nfsd-iomode-advisor(8)
+.\"
+.TH NFSD-IOMODE-ADVISOR 8 "15 October 2026"
+.SH NAME
+nfsd-iomode-advisor \- recommend NFSD IO modes for an export
+.SH SYNOPSIS
+.B nfsd-iomode-advisor
+.RB [ \-i
+.IR seconds ]
+.RB [ \-s
+.IR N ]
+.RB [ \-j ]
+.I export
+.SH DESCRIPTION
+.B nfsd-iomode-advisor
+measures page cache and memory reclaim metrics on an NFS server.
+It then recommends values for the
+.B riomode=
+and
+.B wiomode=
+export options of
+.IR export .
+See
+.BR exports (5).
+.PP
+Run the command on the NFS server while clients use the export with a
+typical workload.
+Run it while the export uses buffered IO.
+With dontcache or direct IO, the page cache metrics are not meaningful.
+.PP
+The command collects these metrics at the start and the end of the
+interval:
+.IP \(bu 2
+The bytes that NFSD read and wrote for each export, from
+.IR /proc/fs/nfsd/export_stats .
+.IP \(bu
+The bytes that storage supplied for the READs of the export
+.RI ( io_read_storage
+in
+.IR export_stats ,
+on a kernel with
+.BR CONFIG_TASK_IO_ACCOUNTING ).
+Without this value, the command uses the bytes that the block device
+of the export read.
+The command divides this value by the bytes that NFSD read.
+The result is the miss ratio.
+.IP \(bu
+Page reclaim and refault counters from
+.IR /proc/vmstat .
+.IP \(bu
+Memory pressure from
+.IR /proc/pressure/memory .
+.IP \(bu
+The CPU time of the kswapd and kcompactd kernel threads.
+.IP \(bu
+Dirty and Writeback memory from
+.IR /proc/meminfo .
+.IP \(bu
+The average READ and WRITE size, from
+.IR /proc/net/rpc/nfsd .
+.IP \(bu
+Optionally, the page cache state of files in the export, from
+.BR cachestat (2).
+.PP
+The command also checks if the filesystem of the export supports
+dontcache and direct IO.
+If it does not, NFSD uses buffered IO for these modes, and the command
+does not recommend them.
+.PP
+For each recommendation, the command shows the reasons.
+If the data is not sufficient, the recommendation is "unknown".
+.SH OPTIONS
+.TP
+.BI "\-i, \-\-interval " seconds
+Set the measurement interval.
+The default is 60 seconds.
+.TP
+.BI "\-s, \-\-sample\-files " N
+Use
+.BR cachestat (2)
+on the
+.I N
+largest files in the export.
+The command examines a limited number of files to find them.
+The default is 0, which disables this check.
+.TP
+.B \-j, \-\-json
+Show the metrics and the recommendation as JSON.
+.SH NOTES
+The recommendations come from heuristic thresholds.
+Use them as a starting point.
+Change the IO mode of one export at a time, and compare the metrics
+before and after the change.
+.PP
+The miss ratio includes the readahead and the filesystem metadata
+that the READs needed.
+A miss ratio larger than 1 shows that readahead reads data that clients
+do not request.
+.PP
+The block device miss ratio is approximate.
+Local applications also cause device reads.
+If more than one export is on the same block device, this miss ratio
+is for all of these exports.
+.PP
+The kernel keeps the counters of an export when mountd refreshes it.
+If an export cache entry appears during the interval with counters
+that started earlier, its traffic in the interval is not known, and
+the command does not include it.
+.PP
+The average IO sizes are for all exports.
+The memory metrics are for the full system.
+.PP
+The command must run as root to read the global IO modes in debugfs
+and to open the files for
+.BR cachestat (2).
+.SH FILES
+.I /proc/fs/nfsd/export_stats
+.br
+.I /proc/net/rpc/nfsd
+.br
+.I /proc/net/rpc/nfsd.export/content
+.br
+.I /sys/kernel/debug/nfsd/io_cache_read
+.br
+.I /sys/kernel/debug/nfsd/io_cache_write
+.SH SEE ALSO
+.BR exports (5),
+.BR exportfs (8),
+.BR nfsiostat (8),
+.BR mountstats (8),
+.BR cachestat (2)
