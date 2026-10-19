@@ -51,7 +51,9 @@ enum nfsd_xprtsec_mode {
 };
 
 /*
- * Constraints that apply to an rpcbind registration.
+ * Constraints that apply to an rpcbind registration. no-udp means the kernel
+ * would not have registered this program and version over UDP, so the caller
+ * must skip the udp and udp6 netids for it.
  */
 enum nfsd_rpcbind_flags {
 	NFSD_RPCBIND_FLAGS_NO_UDP = 1,
@@ -279,6 +281,16 @@ enum {
 };
 
 enum {
+	NFSD_A_FILEHANDLE_DOMAIN = 1,
+	NFSD_A_FILEHANDLE_PATH,
+	NFSD_A_FILEHANDLE_MAXSIZE,
+	NFSD_A_FILEHANDLE_HANDLE,
+
+	__NFSD_A_FILEHANDLE_MAX,
+	NFSD_A_FILEHANDLE_MAX = (__NFSD_A_FILEHANDLE_MAX - 1)
+};
+
+enum {
 	NFSD_CMD_RPC_STATUS_GET = 1,
 	NFSD_CMD_THREADS_SET,
 	NFSD_CMD_THREADS_GET,
@@ -298,6 +310,7 @@ enum {
 	NFSD_CMD_UNLOCK_FILESYSTEM,
 	NFSD_CMD_UNLOCK_EXPORT,
 	NFSD_CMD_SERVER_STATS_GET,
+	NFSD_CMD_FILEHANDLE_GET,
 
 	__NFSD_CMD_MAX,
 	NFSD_CMD_MAX = (__NFSD_CMD_MAX - 1)
