@@ -4128,30 +4128,135 @@ int cache_export(nfs_export *exp, char *path)
 	return cache_export_ent(buf, sizeof(buf), domain, &exp->m_export, path);
 }
 
-/**
- * cache_get_filehandle - given an nfs_export, get its root filehandle
- * @exp: target nfs_export
- * @len: length of requested file handle
- * @p: NUL-terminated C string containing export path
+struct filehandle_get_data {
+	struct nfs_fh_len	*fh;
+	int			got_reply;
+	int			kern_err;
+	int			done;
+};
+
+static int filehandle_get_valid_cb(struct nl_msg *msg, void *arg)
+{
+	struct filehandle_get_data *data = arg;
+	struct genlmsghdr *gnlh = nlmsg_data(nlmsg_hdr(msg));
+	struct nlattr *tb[NFSD_A_FILEHANDLE_MAX + 1];
+	int len;
+
+	if (nla_parse(tb, NFSD_A_FILEHANDLE_MAX,
+		      genlmsg_attrdata(gnlh, 0),
+		      genlmsg_attrlen(gnlh, 0), NULL) < 0 ||
+	    !tb[NFSD_A_FILEHANDLE_HANDLE]) {
+		data->kern_err = -EBADMSG;
+		return NL_SKIP;
+	}
+
+	len = nla_len(tb[NFSD_A_FILEHANDLE_HANDLE]);
+	if (len <= 0 || len > NFS3_FHSIZE) {
+		data->kern_err = -EBADMSG;
+		return NL_SKIP;
+	}
+
+	memset(data->fh->fh_handle, 0, sizeof(data->fh->fh_handle));
+	memcpy(data->fh->fh_handle,
+	       nla_data(tb[NFSD_A_FILEHANDLE_HANDLE]), len);
+	data->fh->fh_size = len;
+	data->got_reply = 1;
+	return NL_SKIP;
+}
+
+static int filehandle_get_ack_cb(struct nl_msg *UNUSED(msg), void *arg)
+{
+	struct filehandle_get_data *data = arg;
+
+	data->done = 1;
+	return NL_STOP;
+}
+
+static int filehandle_get_error_cb(struct sockaddr_nl *UNUSED(nla),
+				   struct nlmsgerr *nlerr, void *arg)
+{
+	struct filehandle_get_data *data = arg;
+
+	data->kern_err = nlerr->error;
+	data->done = 1;
+	return NL_STOP;
+}
+
+/*
+ * Fetch an export's root filehandle over netlink.
  *
- * Returns pointer to NFS file handle of root directory of export
+ * Returns 0 with @fh filled in, -EOPNOTSUPP when the running kernel
+ * does not implement FILEHANDLE_GET, or another negative errno.
+ */
+static int nl_cache_filehandle(char *domain, char *path, int len,
+			       struct nfs_fh_len *fh)
+{
+	struct filehandle_get_data data = { .fh = fh };
+	struct nl_msg *msg;
+	struct nl_cb *cb;
+	int ret;
+
+	msg = cache_nl_new_msg(nfsd_nl_family, NFSD_CMD_FILEHANDLE_GET, 0);
+	if (!msg)
+		return -ENOMEM;
+
+	if (nla_put_string(msg, NFSD_A_FILEHANDLE_DOMAIN, domain) < 0 ||
+	    nla_put_string(msg, NFSD_A_FILEHANDLE_PATH, path) < 0 ||
+	    nla_put_u32(msg, NFSD_A_FILEHANDLE_MAXSIZE, len) < 0) {
+		nlmsg_free(msg);
+		return -ENOMEM;
+	}
+
+	cb = nl_cb_alloc(NL_CB_DEFAULT);
+	if (!cb) {
+		nlmsg_free(msg);
+		return -ENOMEM;
+	}
+
+	nl_cb_set(cb, NL_CB_VALID, NL_CB_CUSTOM, filehandle_get_valid_cb, &data);
+	nl_cb_set(cb, NL_CB_ACK, NL_CB_CUSTOM, filehandle_get_ack_cb, &data);
+	nl_cb_err(cb, NL_CB_CUSTOM, filehandle_get_error_cb, &data);
+
+	ret = nl_send_auto(nfsd_nl_cmd_sock, msg);
+	nlmsg_free(msg);
+	if (ret < 0) {
+		nl_cb_put(cb);
+		return ret;
+	}
+
+	while (!data.done) {
+		ret = nl_recvmsgs(nfsd_nl_cmd_sock, cb);
+		if (ret < 0)
+			break;
+	}
+	nl_cb_put(cb);
+
+	if (data.kern_err)
+		return data.kern_err;
+	if (!data.got_reply)
+		return ret < 0 ? ret : -EIO;
+	return 0;
+}
+
+/*
+ * Fetch an export's root filehandle via /proc, for kernels that predate
+ * FILEHANDLE_GET.
  *
- * { 
- *   echo $domain $path $length 
+ * {
+ *   echo $domain $path $length
  *   read filehandle <&0
  * } <> /proc/fs/nfsd/filehandle
  */
-struct nfs_fh_len *
-cache_get_filehandle(nfs_export *exp, int len, char *p)
+static int proc_cache_filehandle(nfs_export *exp, int len, char *p,
+				 struct nfs_fh_len *fh)
 {
-	static struct nfs_fh_len fh;
 	char buf[RPC_CHAN_BUF_SIZE], *bp;
 	int blen, f;
 
 	f = open("/proc/fs/nfsd/filehandle", O_RDWR);
 	if (f < 0) {
 		f = open("/proc/fs/nfs/filehandle", O_RDWR);
-		if (f < 0) return NULL;
+		if (f < 0) return -1;
 	}
 
 	bp = buf, blen = sizeof(buf);
@@ -4161,18 +4266,49 @@ cache_get_filehandle(nfs_export *exp, int len, char *p)
 	qword_addeol(&bp, &blen);
 	if (blen <= 0 || cache_write(f, buf, bp - buf) != bp - buf) {
 		close(f);
-		return NULL;
+		return -1;
 	}
 	bp = buf;
 	blen = cache_read(f, buf, sizeof(buf));
 	close(f);
 
 	if (blen <= 0 || buf[blen-1] != '\n')
-		return NULL;
+		return -1;
 	buf[blen-1] = 0;
 
-	memset(fh.fh_handle, 0, sizeof(fh.fh_handle));
-	fh.fh_size = qword_get(&bp, (char *)fh.fh_handle, NFS3_FHSIZE);
+	memset(fh->fh_handle, 0, sizeof(fh->fh_handle));
+	fh->fh_size = qword_get(&bp, (char *)fh->fh_handle, NFS3_FHSIZE);
+	return 0;
+}
+
+/**
+ * cache_get_filehandle - given an nfs_export, get its root filehandle
+ * @exp: target nfs_export
+ * @len: length of requested file handle
+ * @p: NUL-terminated C string containing export path
+ *
+ * Returns pointer to NFS file handle of root directory of export
+ *
+ * The handle is fetched over netlink whenever the command socket is up
+ * and the kernel implements FILEHANDLE_GET, and via /proc otherwise.
+ */
+struct nfs_fh_len *
+cache_get_filehandle(nfs_export *exp, int len, char *p)
+{
+	static struct nfs_fh_len fh;
+	int err;
+
+	if (nfsd_nl_cmd_sock) {
+		err = nl_cache_filehandle(exp->m_client->m_hostname, p,
+					  len, &fh);
+		if (!err)
+			return &fh;
+		if (err != -EOPNOTSUPP)
+			return NULL;
+	}
+
+	if (proc_cache_filehandle(exp, len, p, &fh) < 0)
+		return NULL;
 	return &fh;
 }
 
